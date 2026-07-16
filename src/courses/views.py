@@ -8,7 +8,7 @@ from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
-from generation.services import enqueue_curriculum_job
+from generation.services import GenerationConfigurationError, enqueue_curriculum_job
 
 from .forms import CourseCreateForm, CurriculumRevisionForm
 from .models import Course, CurriculumVersion
@@ -41,8 +41,12 @@ class CourseCreateView(LoginRequiredMixin, CreateView):
         course.status = Course.Status.PLANNING
         course.full_clean()
         course.save()
-        enqueue_curriculum_job(course.pk)
-        messages.success(self.request, 'Course created. Curriculum planning has been queued.')
+        try:
+            enqueue_curriculum_job(course.pk)
+        except GenerationConfigurationError:
+            messages.warning(self.request, 'Course created. Configure an enabled default model before queuing curriculum planning.')
+        else:
+            messages.success(self.request, 'Course created. Curriculum planning has been queued.')
         return redirect('courses:detail', course_id=course.public_id)
 
 
@@ -93,8 +97,12 @@ class CurriculumReviewView(OwnedCourseQuerysetMixin, TemplateView):
             else:
                 self.course.status = Course.Status.PLANNING
                 self.course.save(update_fields=('status', 'updated_at'))
-                enqueue_curriculum_job(self.course.pk, revision_instruction=instruction)
-                messages.success(request, 'Curriculum revision has been queued.')
+                try:
+                    enqueue_curriculum_job(self.course.pk, revision_instruction=instruction)
+                except GenerationConfigurationError:
+                    messages.warning(request, 'Configure an enabled default model before queuing the revision.')
+                else:
+                    messages.success(request, 'Curriculum revision has been queued.')
             return redirect('courses:curriculum-review', course_id=self.course.public_id, curriculum_id=self.curriculum.public_id)
 
         messages.error(request, 'Choose a valid curriculum action.')
