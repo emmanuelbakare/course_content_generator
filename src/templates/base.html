@@ -1,0 +1,51 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="AI-assisted course authoring">
+    <title>{% block title %}Course Content Generator{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+    <script src="{% static 'django_htmx/htmx-2.min.js' %}" defer></script>
+</head>
+<body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <header class="site-header">
+        <div class="shell header-content">
+            <a class="brand" href="{% if user.is_authenticated %}{% url 'accounts:dashboard' %}{% else %}{% url 'accounts:login' %}{% endif %}">
+                Course Content Generator
+            </a>
+            <nav aria-label="Primary navigation">
+                <ul class="navigation-list">
+                    {% if user.is_authenticated %}
+                        <li><a href="{% url 'accounts:dashboard' %}">Dashboard</a></li>
+                        <li><a href="{% url 'admin:index' %}">Administration</a></li>
+                        <li>
+                            <form action="{% url 'accounts:logout' %}" method="post">
+                                {% csrf_token %}
+                                <button class="link-button" type="submit">Log out</button>
+                            </form>
+                        </li>
+                    {% else %}
+                        <li><a href="{% url 'accounts:login' %}">Log in</a></li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main id="main-content" class="shell page-content">
+        {% if messages %}
+            <section class="messages" aria-label="Notifications">
+                {% for message in messages %}
+                    <div class="message message-{{ message.tags|default:'info' }}" role="status">{{ message }}</div>
+                {% endfor %}
+            </section>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

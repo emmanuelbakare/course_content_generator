@@ -1,0 +1,30 @@
+{#
+Reusable job-status component. Pass a GenerationJob as `job`; optionally pass
+`status_url` when a later workflow provides an HTMX polling endpoint.
+#}
+{% if job %}
+    <article
+        id="job-status-{{ job.public_id }}"
+        class="job-status"
+        {% if status_url %}hx-get="{{ status_url }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
+    >
+        <div class="job-status-heading">
+            <h3>{{ job.get_job_type_display }} generation</h3>
+            <span class="status status-{{ job.status }}">{{ job.get_status_display }}</span>
+        </div>
+        {% if job.progress_total %}
+            <progress value="{{ job.progress_current }}" max="{{ job.progress_total }}">
+                {{ job.progress_current }} of {{ job.progress_total }}
+            </progress>
+            <p>{{ job.progress_current }} of {{ job.progress_total }} steps complete</p>
+        {% else %}
+            <p>Preparing generation details.</p>
+        {% endif %}
+        {% if job.error_message %}<p class="form-errors">{{ job.error_message }}</p>{% endif %}
+    </article>
+{% else %}
+    <div class="empty-state compact">
+        <h3>No active generation jobs</h3>
+        <p>When you generate a curriculum or lesson, its progress will be shown here.</p>
+    </div>
+{% endif %}

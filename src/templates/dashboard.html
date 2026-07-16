@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="hero" aria-labelledby="dashboard-title">
+        <div>
+            <p class="eyebrow">Dashboard</p>
+            <h1 id="dashboard-title">Welcome back, {{ user.get_username }}</h1>
+            <p>Create, review, and refine instructor-ready course material in one workspace.</p>
+        </div>
+        <div class="hero-actions">
+            <button class="button button-primary" type="button" disabled aria-disabled="true">Create a course</button>
+            <span class="coming-soon">Available in the course workflow phase</span>
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="courses-title">
+        <div class="panel-heading">
+            <div>
+                <h2 id="courses-title">Your courses</h2>
+                <p>Course creation and curriculum review will appear here.</p>
+            </div>
+        </div>
+        <div class="empty-state">
+            <h3>No course content has been generated yet</h3>
+            <p>Start by creating a course brief once the curriculum workflow is available.</p>
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="jobs-title">
+        <div class="panel-heading">
+            <div>
+                <h2 id="jobs-title">Generation activity</h2>
+                <p>Long-running generation progress will appear here.</p>
+            </div>
+        </div>
+        {% include 'components/job_status.html' with job=None %}
+    </section>
+{% endblock %}
