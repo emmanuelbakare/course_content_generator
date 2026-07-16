@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}Generation settings · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="hero" aria-labelledby="settings-title">
+        <div>
+            <p class="eyebrow">Administrator settings</p>
+            <h1 id="settings-title">Generation settings</h1>
+            <p>Manage approved providers and models. API keys are configured only on the application server.</p>
+        </div>
+    </section>
+
+    <section class="settings-grid">
+        <div class="panel">
+            <h2>Default generation configuration</h2>
+            <form method="post" class="stacked-form">
+                {% csrf_token %}<input type="hidden" name="action" value="save_defaults">
+                {% for field in settings_form %}
+                    <div class="form-field">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {% if field.name == 'default_provider' %}
+                            <select name="{{ field.html_name }}" id="{{ field.id_for_label }}">
+                                {% for choice in field.field.choices %}<option value="{{ choice.0 }}" {% if field.value|stringformat:'s' == choice.0|stringformat:'s' %}selected{% endif %}>{{ choice.1 }}</option>{% endfor %}
+                            </select>
+                        {% elif field.name == 'default_model' %}
+                            <div id="default-model-field">{% include 'generation/partials/default_model_field.html' with field=field %}</div>
+                        {% else %}
+                            {{ field }}
+                        {% endif %}
+                        {% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}
+                    </div>
+                {% endfor %}
+                <button class="button button-primary" type="submit">Save defaults</button>
+            </form>
+        </div>
+
+        <div class="panel" id="provider-models">
+            {% include 'generation/partials/provider_catalog.html' %}
+        </div>
+    </section>
+
+    <section class="settings-grid">
+        <div class="panel">
+            <h2>{% if editing_provider %}Edit provider{% else %}Add provider{% endif %}</h2>
+            <form method="post" class="stacked-form">
+                {% csrf_token %}<input type="hidden" name="action" value="save_provider">
+                {% if editing_provider %}<input type="hidden" name="provider_id" value="{{ editing_provider }}">{% endif %}
+                {% for field in provider_form %}
+                    <div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>
+                {% endfor %}
+                <button class="button button-secondary" type="submit">Save provider</button>
+            </form>
+        </div>
+
+        {% if selected_provider %}
+            <div class="panel">
+                <h2>{% if editing_model %}Edit model{% else %}Add model{% endif %} for {{ selected_provider.name }}</h2>
+                <form method="post" class="stacked-form">
+                    {% csrf_token %}<input type="hidden" name="action" value="save_model"><input type="hidden" name="provider_id" value="{{ selected_provider.id }}">
+                    {% if editing_model %}<input type="hidden" name="model_id" value="{{ editing_model }}">{% endif %}
+                    {% for field in model_form %}
+                        <div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>
+                    {% endfor %}
+                    <button class="button button-secondary" type="submit">Save model</button>
+                </form>
+            </div>
+        {% endif %}
+    </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('change', (event) => {
+        if (event.target.id !== 'id_default_provider' || !event.target.value) return;
+        htmx.ajax('GET', `/generation/settings/providers/${event.target.value}/models/`, {target: '#default-model-field', swap: 'outerHTML'});
+    });
+</script>
+{% endblock %}

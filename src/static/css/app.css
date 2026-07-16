@@ -78,6 +78,13 @@ progress { width: 100%; margin-top: 1rem; accent-color: var(--brand); }
 .version-actions { display: flex; align-items: center; gap: .75rem; }
 .outline-section { margin-top: 1rem; }
 .action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+.provider-list { display: grid; gap: .75rem; margin-top: 1rem; }
+.model-list { display: grid; gap: .5rem; padding: .75rem; background: var(--canvas); }
+.model-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; font-size: .9rem; }
+.key-status { font-weight: 700; }
+.key-status.configured { color: #067647; }
+.key-status.missing { color: #93370d; }
 .compact-panel { margin: 0; }
 .compact-panel label { display: block; margin: 1rem 0 .4rem; font-weight: 600; }
 .compact-panel .button { margin-top: 1rem; }

@@ -1,0 +1,35 @@
+<div class="panel-heading">
+    <div>
+        <h2>Providers and models</h2>
+        <p>Only configuration state is shown; secrets are never displayed here.</p>
+    </div>
+</div>
+<div class="provider-list">
+    {% for provider in providers %}
+        <article class="version-row">
+            <div>
+                <h3><a href="{% url 'generation:settings' %}?provider={{ provider.id }}">{{ provider.name }}</a></h3>
+                <p>{{ provider.get_adapter_type_display }} · {% if provider.is_api_key_configured %}<span class="key-status configured">Key configured</span>{% else %}<span class="key-status missing">Key missing</span>{% endif %}</p>
+            </div>
+            <div class="version-actions">
+                <span class="status">{% if provider.enabled %}Enabled{% else %}Disabled{% endif %}</span>
+                <a class="button button-secondary" href="{% url 'generation:settings' %}?provider={{ provider.id }}&edit_provider={{ provider.id }}">Edit</a>
+                <form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_provider"><input type="hidden" name="provider_id" value="{{ provider.id }}"><button class="link-button" type="submit">Delete</button></form>
+            </div>
+        </article>
+        {% if provider.id == selected_provider.id %}
+            <div class="model-list">
+                {% for model in provider.models.all %}
+                    <article class="model-row">
+                        <span><strong>{{ model.display_name|default:model.identifier }}</strong> <span class="muted">{{ model.identifier }}</span></span>
+                        <span>{% if model.enabled %}Enabled{% else %}Disabled{% endif %}</span>
+                        <a href="{% url 'generation:settings' %}?provider={{ provider.id }}&edit_model={{ model.id }}">Edit</a>
+                        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_model"><input type="hidden" name="model_id" value="{{ model.id }}"><button class="link-button" type="submit">Delete</button></form>
+                    </article>
+                {% empty %}<p class="muted">No models have been added for this provider.</p>{% endfor %}
+            </div>
+        {% endif %}
+    {% empty %}
+        <div class="empty-state compact"><h3>No providers configured</h3><p>Add a provider, configure its server-side key, then add a model.</p></div>
+    {% endfor %}
+</div>
