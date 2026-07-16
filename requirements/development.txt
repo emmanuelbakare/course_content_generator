@@ -1,0 +1,10 @@
+pytest
+pytest-django
+pytest-cov
+factory-boy
+Faker
+ruff
+mypy
+django-stubs
+pre-commit
+coverage

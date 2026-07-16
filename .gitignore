@@ -1,0 +1,53 @@
+@"
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+venvi/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Keep examples
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Generated files
+exports/
+tmp/
+
+# Docker overrides
+docker-compose.override.yml
+"@ | Set-Content .gitignore

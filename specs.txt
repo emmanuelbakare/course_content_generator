@@ -1,0 +1,9 @@
+Develop a Course Content Generator.
+- When you enter the course topic the application breaks the course into detailed curriculum to be treated. The detail of the curriculum should depend on the number of hours the user specify the course should run for. If user didn't specified course duration. System should do its best to break down the course into detailed section/outline/topic and suggest a duration based on the breakdown done.
+- User is given the option to accept the  curriculum or write another prompt to reduce, start again or increase the course curriculum.  Let the curriculum be broken into course sections.
+- Each course section should be broken down to a detailed tutorial that an instructor can follow line by line to implement the tutorial section.
+- Course details should contain detailed instruction, diagrams, code and explanation that is needed for the course being developed.
+- System should have interface where all developed course are listed, and when you click on the course it list out all the course outline on a side, if you click a course outline, you see the details of the course curriculum. Course details should include all necessary content like text, explanation, images, diagram, flows etc that will be use to explain the topic.
+- Course outline should also include real world project examples for each section if need be and project example for the overall course.
+- During generation, there should be no limitation on the text, code writing, image etc when a token limit is reach system should iterate and continue generating the content until the topic/section is sufficiently satisfied.
+- Add  a settings page where you can choose which LLM and version to chose - access the bible app implementation in C:\codes-C\django5\bible> and see if you can do same Generation Settings Page for this app where you can choose the LLM Provider and different model under the provider. The API key file for the mode
