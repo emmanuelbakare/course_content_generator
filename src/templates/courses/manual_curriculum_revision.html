@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+
+{% block title %}Manual curriculum · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="form-panel" aria-labelledby="manual-title">
+        <p class="eyebrow">Manual curriculum revision</p>
+        <h1 id="manual-title">Edit the curriculum structure</h1>
+        <p>Sections and lessons are ordered by their placement in the JSON array. Saving creates a new draft snapshot; it never edits an earlier curriculum version.</p>
+        <form method="post" class="stacked-form">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+            {% for field in form %}
+                <div class="form-field">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                    {% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}
+                </div>
+            {% endfor %}
+            <div class="form-actions">
+                <button class="button button-primary" type="submit">Save draft curriculum</button>
+                <a class="button button-secondary" href="{% url 'courses:detail' course.public_id %}">Cancel</a>
+            </div>
+        </form>
+    </section>
+{% endblock %}

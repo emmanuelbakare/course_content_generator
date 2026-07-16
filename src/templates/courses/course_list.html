@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}Courses · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="hero" aria-labelledby="courses-title">
+        <div>
+            <p class="eyebrow">Course workspace</p>
+            <h1 id="courses-title">Your courses</h1>
+            <p>Plan a curriculum, review its structure, and prepare it for detailed lesson generation.</p>
+        </div>
+        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:create' %}">Create a course</a></div>
+    </section>
+
+    <section class="course-grid" aria-label="Course list">
+        {% for course in courses %}
+            <article class="course-card">
+                <div class="job-status-heading">
+                    <h2><a href="{% url 'courses:detail' course.public_id %}">{{ course.title }}</a></h2>
+                    <span class="status status-{{ course.status }}">{{ course.get_status_display }}</span>
+                </div>
+                <p>{{ course.topic|truncatechars:180 }}</p>
+                <dl class="metadata-list">
+                    <div><dt>Level</dt><dd>{{ course.get_level_display }}</dd></div>
+                    <div><dt>Duration</dt><dd>{% if course.desired_duration_minutes %}{{ course.desired_duration_minutes }} minutes{% else %}To be proposed{% endif %}</dd></div>
+                    <div><dt>Curricula</dt><dd>{{ course.curriculum_versions.count }}</dd></div>
+                </dl>
+            </article>
+        {% empty %}
+            <div class="empty-state">
+                <h2>No courses yet</h2>
+                <p>Create a course brief to begin planning a curriculum.</p>
+            </div>
+        {% endfor %}
+    </section>
+{% endblock %}

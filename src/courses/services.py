@@ -155,3 +155,24 @@ def create_curriculum_revision(
             return curriculum
     except IntegrityError as exc:
         raise ValidationError('Could not create a unique curriculum revision.') from exc
+
+
+def approve_curriculum_version(curriculum: CurriculumVersion, *, approved_by) -> CurriculumVersion:
+    """Approve a draft snapshot without changing its curriculum content."""
+    if approved_by.pk != curriculum.course.owner_id:
+        raise ValidationError('Only the course owner may approve a curriculum revision.')
+    if curriculum.status == CurriculumVersion.Status.SUPERSEDED:
+        raise ValidationError('A superseded curriculum version cannot be approved.')
+
+    with transaction.atomic():
+        locked_course = Course.objects.select_for_update().get(pk=curriculum.course_id)
+        locked_curriculum = CurriculumVersion.objects.get(pk=curriculum.pk)
+        CurriculumVersion.objects.filter(
+            course=locked_course,
+            status=CurriculumVersion.Status.APPROVED,
+        ).exclude(pk=locked_curriculum.pk).update(status=CurriculumVersion.Status.SUPERSEDED)
+        locked_curriculum.status = CurriculumVersion.Status.APPROVED
+        locked_curriculum.full_clean()
+        locked_curriculum.save(update_fields=('status',))
+        Course.objects.filter(pk=locked_course.pk).update(status=Course.Status.APPROVED)
+        return locked_curriculum

@@ -20,6 +20,7 @@
                 <ul class="navigation-list">
                     {% if user.is_authenticated %}
                         <li><a href="{% url 'accounts:dashboard' %}">Dashboard</a></li>
+                        <li><a href="{% url 'courses:list' %}">Courses</a></li>
                         <li><a href="{% url 'admin:index' %}">Administration</a></li>
                         <li>
                             <form action="{% url 'accounts:logout' %}" method="post">

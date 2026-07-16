@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+
+{% block title %}Review curriculum · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="hero" aria-labelledby="review-title">
+        <div>
+            <p class="eyebrow">Curriculum version {{ curriculum.version_number }}</p>
+            <h1 id="review-title">{{ course.title }}</h1>
+            <p>{{ curriculum.course_description|default:course.topic }}</p>
+        </div>
+        <div class="hero-actions">
+            <span class="status status-{{ curriculum.status }}">{{ curriculum.get_status_display }}</span>
+            <a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create revised copy</a>
+        </div>
+    </section>
+    <section class="panel">
+        <h2>Curriculum outline</h2>
+        {% for section in curriculum.sections.all %}
+            <article class="outline-section">
+                <div class="job-status-heading"><h3>{{ section.position }}. {{ section.title }}</h3><span>{{ section.duration_minutes }} minutes</span></div>
+                {% if section.summary %}<p>{{ section.summary }}</p>{% endif %}
+                <ol>
+                    {% for lesson in section.lessons.all %}
+                        <li><strong>{{ lesson.title }}</strong> <span class="muted">— {{ lesson.duration_minutes }} minutes</span></li>
+                    {% endfor %}
+                </ol>
+            </article>
+        {% endfor %}
+    </section>
+    <section class="action-grid">
+        {% if curriculum.status != 'approved' %}
+            <form method="post" class="panel compact-panel">
+                {% csrf_token %}<input type="hidden" name="action" value="approve">
+                <h2>Accept this curriculum</h2>
+                <p>Approval makes this the active curriculum for the course.</p>
+                <button class="button button-primary" type="submit">Approve curriculum</button>
+            </form>
+        {% endif %}
+        <form method="post" class="panel compact-panel">
+            {% csrf_token %}<input type="hidden" name="action" value="request_revision">
+            <h2>Request an AI revision</h2>
+            <label for="revision_instruction">What should change?</label>
+            <textarea id="revision_instruction" name="revision_instruction" rows="4" required placeholder="For example: reduce this to a four-hour workshop for intermediate learners."></textarea>
+            <button class="button button-secondary" type="submit">Queue revision</button>
+        </form>
+    </section>
+{% endblock %}

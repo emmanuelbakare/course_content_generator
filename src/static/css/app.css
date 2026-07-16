@@ -26,7 +26,7 @@ button, input { font: inherit; }
 .link-button { padding: 0; border: 0; background: transparent; cursor: pointer; }
 .navigation-list a:hover, .link-button:hover { color: var(--brand); }
 .page-content { padding-block: 2.5rem 4rem; }
-.hero, .panel, .auth-panel { border: 1px solid var(--line); border-radius: .875rem; background: var(--surface); }
+.hero, .panel, .auth-panel, .form-panel { border: 1px solid var(--line); border-radius: .875rem; background: var(--surface); }
 .hero { display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; padding: clamp(1.5rem, 4vw, 3rem); }
 .hero h1, .auth-panel h1 { margin: .25rem 0 .75rem; font-size: clamp(2rem, 4vw, 3rem); }
 .hero p, .auth-panel > p, .panel-heading p, .empty-state p { color: var(--muted); line-height: 1.55; }
@@ -42,9 +42,15 @@ button, input { font: inherit; }
 .empty-state { margin-top: 1.25rem; border: 1px dashed var(--line); border-radius: .625rem; padding: 1.5rem; }
 .empty-state.compact { margin-top: 1rem; }
 .auth-panel { width: min(100%, 32rem); margin: 3rem auto; padding: 2rem; }
+.form-panel { width: min(100%, 52rem); margin: 0 auto; padding: clamp(1.5rem, 4vw, 2.5rem); }
+.form-panel h1 { margin-top: .25rem; }
 .stacked-form { display: grid; gap: 1rem; margin-top: 1.5rem; }
 .form-field { display: grid; gap: .4rem; }
-.form-field input { width: 100%; border: 1px solid var(--line); border-radius: .5rem; padding: .7rem; }
+.form-field input, .form-field textarea, .form-field select, .compact-panel textarea { width: 100%; border: 1px solid var(--line); border-radius: .5rem; padding: .7rem; background: white; }
+.form-field textarea { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.form-field small { color: var(--muted); }
+.form-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.button-secondary { display: inline-block; border: 1px solid var(--line); color: var(--ink); background: white; text-align: center; text-decoration: none; }
 .form-errors { color: var(--danger); font-size: .9rem; }
 .messages { display: grid; gap: .75rem; margin-bottom: 1.5rem; }
 .message { border-radius: .5rem; padding: .85rem 1rem; background: #eaf2ff; color: #194185; }
@@ -56,6 +62,25 @@ button, input { font: inherit; }
 .status-succeeded { background: #ecfdf3; color: #067647; }
 .status-failed, .status-cancelled { background: #fef3f2; color: var(--danger); }
 progress { width: 100%; margin-top: 1rem; accent-color: var(--brand); }
+.course-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+.course-card, .outline-section { border: 1px solid var(--line); border-radius: .75rem; padding: 1.25rem; background: var(--surface); }
+.course-card h2 { font-size: 1.15rem; }
+.course-card h2 a { text-decoration: none; }
+.course-card p, .muted { color: var(--muted); }
+.metadata-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin: 1rem 0 0; }
+.metadata-list div { display: grid; gap: .15rem; }
+.metadata-list dt { color: var(--muted); font-size: .78rem; }
+.metadata-list dd { margin: 0; font-size: .9rem; font-weight: 600; }
+.version-list { display: grid; gap: .75rem; margin-top: 1rem; }
+.version-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.version-row h3 { margin: 0; }
+.version-row p { margin-bottom: 0; color: var(--muted); }
+.version-actions { display: flex; align-items: center; gap: .75rem; }
+.outline-section { margin-top: 1rem; }
+.action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 1.5rem; margin-top: 1.5rem; }
+.compact-panel { margin: 0; }
+.compact-panel label { display: block; margin: 1rem 0 .4rem; font-weight: 600; }
+.compact-panel .button { margin-top: 1rem; }
 .skip-link { position: fixed; left: .5rem; top: -4rem; z-index: 10; padding: .5rem; background: var(--ink); color: white; }
 .skip-link:focus { top: .5rem; }
 
@@ -63,4 +88,6 @@ progress { width: 100%; margin-top: 1rem; accent-color: var(--brand); }
     .header-content, .hero { align-items: flex-start; flex-direction: column; padding-block: 1rem; }
     .hero-actions { width: 100%; }
     .button { width: 100%; }
+    .metadata-list { grid-template-columns: 1fr; }
+    .version-row, .version-actions { align-items: flex-start; flex-direction: column; }
 }

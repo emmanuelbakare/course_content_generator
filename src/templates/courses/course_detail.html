@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ course.title }} · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="hero" aria-labelledby="course-title">
+        <div>
+            <p class="eyebrow">{{ course.get_status_display }}</p>
+            <h1 id="course-title">{{ course.title }}</h1>
+            <p>{{ course.topic }}</p>
+        </div>
+        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a></div>
+    </section>
+    <section class="panel">
+        <h2>Curriculum versions</h2>
+        <div class="version-list">
+            {% for curriculum in curriculum_versions %}
+                <article class="version-row">
+                    <div>
+                        <h3>Version {{ curriculum.version_number }}</h3>
+                        <p>{{ curriculum.change_summary|default:'No summary provided.' }}</p>
+                    </div>
+                    <div class="version-actions">
+                        <span class="status status-{{ curriculum.status }}">{{ curriculum.get_status_display }}</span>
+                        <a class="button button-secondary" href="{% url 'courses:curriculum-review' course.public_id curriculum.public_id %}">Review</a>
+                    </div>
+                </article>
+            {% empty %}
+                <div class="empty-state">
+                    <h3>Curriculum planning is queued</h3>
+                    <p>You can create a manual curriculum while waiting for an AI proposal.</p>
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+{% endblock %}
