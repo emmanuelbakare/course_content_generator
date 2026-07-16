@@ -1,4 +1,3 @@
-@"
 # Python
 __pycache__/
 *.py[cod]
@@ -28,26 +27,18 @@ staticfiles/
 .env
 .env.local
 .env.*.local
-
-# Keep examples
 !.env.example
-
-# IDE
-.vscode/
-.idea/
-
-# Windows
-Thumbs.db
-Desktop.ini
 
 # Celery
 celerybeat-schedule
 celerybeat.pid
 
 # Generated files
-exports/
+/exports/
 tmp/
 
-# Docker overrides
-docker-compose.override.yml
-"@ | Set-Content .gitignore
+# IDE and operating-system files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
