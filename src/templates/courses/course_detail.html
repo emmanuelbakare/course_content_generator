@@ -9,7 +9,7 @@
             <h1 id="course-title">{{ course.title }}</h1>
             <p>{{ course.topic }}</p>
         </div>
-        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a></div>
+        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:workspace' course.public_id %}">Open workspace</a><a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a></div>
     </section>
     <section class="panel">
         <h2>Curriculum versions</h2>

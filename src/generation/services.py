@@ -42,13 +42,14 @@ def enqueue_curriculum_job(course_id, revision_instruction=None):
     return job
 
 
-def enqueue_lesson_job(lesson_id):
+def enqueue_lesson_job(lesson_id, revision_instruction=None):
     """Create and enqueue one lesson-generation job for later workspace use."""
     lesson = Lesson.objects.select_related('section__curriculum_version__course').get(pk=lesson_id)
     job = _create_job(
         course=lesson.section.curriculum_version.course,
         lesson=lesson,
         job_type=GenerationJob.JobType.LESSON,
+        revision_instruction=revision_instruction or '',
     )
     from .tasks import run_generation_job
 
@@ -187,7 +188,10 @@ def _process_lesson_job(job, adapter):
     if lesson is None:
         return _mark_job_failed(job, 'invalid_job_target', 'Lesson generation requires a lesson target.')
     Lesson.objects.filter(pk=lesson.pk).update(status=Lesson.Status.GENERATING)
-    request = _request_with_generation_settings(_lesson_request(lesson), job)
+    request = _request_with_generation_settings(
+        _lesson_request(lesson, job.input_metadata.get('revision_instruction', '')),
+        job,
+    )
     result = _generate_with_bounded_continuations(
         job,
         adapter,
@@ -371,7 +375,7 @@ def _curriculum_request(course, revision_instruction):
     )
 
 
-def _lesson_request(lesson):
+def _lesson_request(lesson, revision_instruction=''):
     course = lesson.section.curriculum_version.course
     return GenerationRequest(
         model='',
@@ -380,7 +384,8 @@ def _lesson_request(lesson):
             'lesson package with objectives, preparation, timed teaching flow, explanations, examples, activities, '
             'and assessment.\n\n'
             f'Course: {course.title}\nSection: {lesson.section.title}\nLesson: {lesson.title}\n'
-            f'Duration: {lesson.duration_minutes}\nObjectives: {lesson.objectives}\nOutline: {lesson.outline}'
+            f'Duration: {lesson.duration_minutes}\nObjectives: {lesson.objectives}\nOutline: {lesson.outline}\n'
+            f'Revision instruction: {revision_instruction}'
         ),
     )
 

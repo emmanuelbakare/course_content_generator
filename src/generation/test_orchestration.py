@@ -167,3 +167,15 @@ class GenerationOrchestrationTests(TestCase):
             self.client.get(reverse('generation:job-status', args=[job.public_id])).status_code,
             404,
         )
+
+    def test_htmx_job_status_request_returns_the_reusable_component(self):
+        job = self.create_job()
+        self.client.force_login(self.owner)
+
+        response = self.client.get(
+            reverse('generation:job-status', args=[job.public_id]),
+            HTTP_HX_REQUEST='true',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'job-status-{job.public_id}')

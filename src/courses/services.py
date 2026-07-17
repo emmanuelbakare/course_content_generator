@@ -5,7 +5,9 @@ from typing import Sequence
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from .models import Course, CourseProject, CourseSection, CurriculumVersion, Lesson
+from django.db.models import Max
+
+from .models import Course, CourseProject, CourseSection, CurriculumVersion, Lesson, LessonRevision
 
 
 @dataclass(frozen=True)
@@ -176,3 +178,27 @@ def approve_curriculum_version(curriculum: CurriculumVersion, *, approved_by) ->
         locked_curriculum.save(update_fields=('status',))
         Course.objects.filter(pk=locked_course.pk).update(status=Course.Status.APPROVED)
         return locked_curriculum
+
+
+def create_lesson_revision(lesson: Lesson, *, created_by, content_markdown: str, metadata=None, change_summary=''):
+    """Append an immutable manual revision to a lesson owned by the author."""
+    if created_by.pk != lesson.section.curriculum_version.course.owner_id:
+        raise ValidationError('Only the course owner may create a lesson revision.')
+    with transaction.atomic():
+        locked_lesson = Lesson.objects.select_for_update().select_related(
+            'section__curriculum_version__course'
+        ).get(pk=lesson.pk)
+        revision_number = (locked_lesson.revisions.aggregate(Max('revision_number'))['revision_number__max'] or 0) + 1
+        revision = LessonRevision(
+            lesson=locked_lesson,
+            created_by=created_by,
+            revision_number=revision_number,
+            content_markdown=content_markdown,
+            metadata=metadata or {},
+            change_summary=change_summary,
+        )
+        revision.full_clean()
+        revision.save()
+        locked_lesson.status = Lesson.Status.READY
+        locked_lesson.save(update_fields=('status', 'updated_at'))
+    return revision

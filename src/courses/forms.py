@@ -115,3 +115,8 @@ def _string_list(value, label):
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError(f'{label} must be an array of strings.')
     return [item.strip() for item in value if item.strip()]
+
+
+class LessonRevisionForm(forms.Form):
+    content_markdown = forms.CharField(widget=forms.Textarea(attrs={'rows': 24, 'spellcheck': 'false'}))
+    change_summary = forms.CharField(required=False, max_length=500)

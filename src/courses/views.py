@@ -3,6 +3,7 @@ import json
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
@@ -10,9 +11,10 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
 from generation.services import GenerationConfigurationError, enqueue_curriculum_job
 
-from .forms import CourseCreateForm, CurriculumRevisionForm
-from .models import Course, CurriculumVersion
-from .services import approve_curriculum_version, create_curriculum_revision
+from .forms import CourseCreateForm, CurriculumRevisionForm, LessonRevisionForm
+from .models import Course, CurriculumVersion, Lesson
+from .rendering import render_safe_markdown
+from .services import approve_curriculum_version, create_curriculum_revision, create_lesson_revision
 
 
 class OwnedCourseQuerysetMixin(LoginRequiredMixin):
@@ -61,6 +63,90 @@ class CourseDetailView(OwnedCourseQuerysetMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context['curriculum_versions'] = self.object.curriculum_versions.prefetch_related('sections__lessons')
         return context
+
+
+class CourseWorkspaceView(OwnedCourseQuerysetMixin, TemplateView):
+    template_name = 'courses/workspace.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.course = self.get_course()
+        self.curriculum = self._get_curriculum()
+        return super().dispatch(request, *args, **kwargs)
+
+    def _get_curriculum(self):
+        versions = self.course.curriculum_versions.prefetch_related(
+            'sections__lessons__revisions',
+            'sections__lessons__generation_jobs',
+        )
+        return versions.filter(status=CurriculumVersion.Status.APPROVED).first() or versions.first()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        lessons = []
+        if self.curriculum:
+            for section in self.curriculum.sections.all():
+                lessons.extend(section.lessons.all())
+        selected_lesson_id = self.request.GET.get('lesson')
+        selected_lesson = next(
+            (lesson for lesson in lessons if str(lesson.public_id) == selected_lesson_id),
+            lessons[0] if lessons else None,
+        )
+        if selected_lesson_id and selected_lesson is None:
+            raise Http404('Selected lesson is not part of this curriculum.')
+        latest_revision = selected_lesson.revisions.first() if selected_lesson else None
+        active_job = None
+        if selected_lesson:
+            active_job = next(
+                (
+                    job for job in selected_lesson.generation_jobs.all()
+                    if job.status not in {'succeeded', 'failed', 'cancelled', 'needs_review'}
+                ),
+                None,
+            )
+        context.update(
+            {
+                'course': self.course,
+                'curriculum': self.curriculum,
+                'selected_lesson': selected_lesson,
+                'latest_revision': latest_revision,
+                'rendered_content': render_safe_markdown(latest_revision.content_markdown) if latest_revision else '',
+                'revision_form': LessonRevisionForm(
+                    initial={
+                        'content_markdown': latest_revision.content_markdown if latest_revision else '',
+                        'change_summary': 'Manual update',
+                    }
+                ) if selected_lesson else None,
+                'active_job': active_job,
+                'active_job_status_url': reverse('generation:job-status', args=[active_job.public_id]) if active_job else '',
+                'terminal_lesson_jobs': [
+                    job for job in (selected_lesson.generation_jobs.all() if selected_lesson else [])
+                    if job.status in {'failed', 'cancelled', 'needs_review'}
+                ],
+            }
+        )
+        return context
+
+
+class LessonRevisionCreateView(OwnedCourseQuerysetMixin, View):
+    def post(self, request, course_id, lesson_id):
+        course = self.get_course()
+        lesson = get_object_or_404(
+            Lesson.objects.select_related('section__curriculum_version__course'),
+            public_id=lesson_id,
+            section__curriculum_version__course=course,
+        )
+        form = LessonRevisionForm(request.POST)
+        if form.is_valid():
+            create_lesson_revision(
+                lesson,
+                created_by=request.user,
+                content_markdown=form.cleaned_data['content_markdown'],
+                change_summary=form.cleaned_data['change_summary'],
+            )
+            messages.success(request, 'Lesson revision saved.')
+        else:
+            messages.error(request, 'Lesson revision could not be saved.')
+        return redirect(f'{reverse("courses:workspace", args=[course.public_id])}?lesson={lesson.public_id}')
 
 
 class CurriculumReviewView(OwnedCourseQuerysetMixin, TemplateView):

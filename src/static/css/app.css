@@ -85,6 +85,32 @@ progress { width: 100%; margin-top: 1rem; accent-color: var(--brand); }
 .key-status { font-weight: 700; }
 .key-status.configured { color: #067647; }
 .key-status.missing { color: #93370d; }
+.workspace-header, .lesson-heading, .lesson-actions, .job-controls { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.workspace-header { margin-bottom: 1.5rem; }
+.workspace-header h1, .lesson-heading h2 { margin: .25rem 0; }
+.workspace-layout { display: grid; grid-template-columns: minmax(15rem, 24rem) minmax(0, 1fr); border: 1px solid var(--line); border-radius: .875rem; overflow: hidden; background: var(--surface); }
+.curriculum-sidebar { padding: 1.25rem; background: #f8fafc; border-right: 1px solid var(--line); }
+.curriculum-sidebar h2 { margin-top: 0; }
+.sidebar-section { margin-top: 1rem; }
+.sidebar-section h3 { margin: 0; font-size: .95rem; }
+.sidebar-section ol { display: grid; gap: .25rem; padding: 0; list-style: none; }
+.sidebar-section li { display: flex; justify-content: space-between; gap: .5rem; padding: .45rem; border-radius: .4rem; }
+.sidebar-section li.selected { background: #eaf2ff; }
+.sidebar-section a { color: var(--ink); text-decoration: none; font-size: .9rem; }
+.sidebar-section span { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.lesson-pane { min-width: 0; padding: clamp(1.25rem, 3vw, 2.25rem); }
+.lesson-heading { border-bottom: 1px solid var(--line); padding-bottom: 1rem; }
+.lesson-actions { justify-content: flex-start; flex-wrap: wrap; margin: 1rem 0; }
+.lesson-actions form, .job-controls form { margin: 0; }
+.lesson-actions summary { cursor: pointer; list-style: none; }
+.small-form { width: min(100%, 30rem); padding-top: .75rem; }
+.lesson-content { margin-top: 1.5rem; line-height: 1.7; }
+.lesson-content pre { overflow-x: auto; padding: 1rem; border-radius: .5rem; background: #17212b; color: #f8fafc; }
+.lesson-content table { width: 100%; border-collapse: collapse; }
+.lesson-content th, .lesson-content td { padding: .5rem; border: 1px solid var(--line); text-align: left; }
+.editor-panel, .revision-history { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.editor-panel summary { cursor: pointer; font-weight: 700; }
+.job-controls { justify-content: flex-start; margin: .75rem 0; }
 .compact-panel { margin: 0; }
 .compact-panel label { display: block; margin: 1rem 0 .4rem; font-weight: 600; }
 .compact-panel .button { margin-top: 1rem; }
@@ -97,4 +123,7 @@ progress { width: 100%; margin-top: 1rem; accent-color: var(--brand); }
     .button { width: 100%; }
     .metadata-list { grid-template-columns: 1fr; }
     .version-row, .version-actions { align-items: flex-start; flex-direction: column; }
+    .workspace-layout { grid-template-columns: 1fr; }
+    .curriculum-sidebar { border-right: 0; border-bottom: 1px solid var(--line); }
+    .workspace-header, .lesson-heading { flex-direction: column; }
 }

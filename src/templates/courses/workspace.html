@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ course.title }} workspace · Course Content Generator{% endblock %}
+
+{% block content %}
+    <section class="workspace-header">
+        <div><p class="eyebrow">Course workspace</p><h1>{{ course.title }}</h1></div>
+        <a class="button button-secondary" href="{% url 'courses:detail' course.public_id %}">Course overview</a>
+    </section>
+    {% if curriculum %}
+        <div class="workspace-layout">
+            <aside class="curriculum-sidebar" aria-label="Course curriculum">
+                <h2>Curriculum</h2>
+                {% for section in curriculum.sections.all %}
+                    <section class="sidebar-section"><h3>{{ section.position }}. {{ section.title }}</h3><ol>{% for lesson in section.lessons.all %}<li class="{% if lesson == selected_lesson %}selected{% endif %}"><a href="{% url 'courses:workspace' course.public_id %}?lesson={{ lesson.public_id }}">{{ lesson.position }}. {{ lesson.title }}</a><span>{{ lesson.duration_minutes }} min</span></li>{% endfor %}</ol></section>
+                {% endfor %}
+            </aside>
+            <section class="lesson-pane" aria-labelledby="lesson-title">
+                {% if selected_lesson %}
+                    <div class="lesson-heading"><div><p class="eyebrow">{{ selected_lesson.section.title }}</p><h2 id="lesson-title">{{ selected_lesson.title }}</h2><p>{{ selected_lesson.duration_minutes }} minutes</p></div><span class="status status-{{ selected_lesson.status }}">{{ selected_lesson.get_status_display }}</span></div>
+                    <div class="lesson-actions">
+                        <form method="post" action="{% url 'generation:lesson-generate' selected_lesson.public_id %}">{% csrf_token %}<button class="button button-primary" type="submit">Generate lesson</button></form>
+                        <details><summary class="button button-secondary">Revise with AI</summary><form method="post" action="{% url 'generation:lesson-generate' selected_lesson.public_id %}" class="stacked-form small-form">{% csrf_token %}<label for="revision-instruction">Revision instructions</label><textarea id="revision-instruction" name="revision_instruction" rows="3" required></textarea><button class="button button-secondary" type="submit">Queue revision</button></form></details>
+                    </div>
+                    {% if active_job %}{% include 'components/job_status.html' with job=active_job status_url=active_job_status_url %}{% endif %}
+                    {% for job in terminal_lesson_jobs %}<div class="job-controls"><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span><form method="post" action="{% url 'generation:lesson-retry' job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Retry</button></form></div>{% endfor %}
+                    {% if active_job %}<form method="post" action="{% url 'generation:lesson-cancel' active_job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel generation</button></form>{% endif %}
+                    <article class="lesson-content prose">{% if latest_revision %}{{ rendered_content }}{% else %}<div class="empty-state compact"><h3>No lesson content yet</h3><p>Generate a lesson or write the first instructor revision.</p></div>{% endif %}</article>
+                    <details class="editor-panel"><summary>Edit lesson content</summary><form method="post" action="{% url 'courses:lesson-edit' course.public_id selected_lesson.public_id %}" class="stacked-form">{% csrf_token %}{% for field in revision_form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>{% endfor %}<button class="button button-primary" type="submit">Save new revision</button></form></details>
+                    <section class="revision-history"><h3>Revision history</h3><ol>{% for revision in selected_lesson.revisions.all %}<li><strong>Revision {{ revision.revision_number }}</strong> · {{ revision.created_at|date:"M j, Y H:i" }}{% if revision.change_summary %} — {{ revision.change_summary }}{% endif %}</li>{% empty %}<li>No revisions yet.</li>{% endfor %}</ol></section>
+                {% endif %}
+            </section>
+        </div>
+    {% else %}
+        <div class="empty-state"><h2>No curriculum is available yet</h2><p>Create or approve a curriculum before opening the lesson workspace.</p></div>
+    {% endif %}
+{% endblock %}

@@ -1,6 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
 from django.views import View
 
 from .models import GenerationJob
@@ -15,6 +16,12 @@ class GenerationJobStatusView(LoginRequiredMixin, View):
             public_id=job_id,
             course__owner=request.user,
         )
+        if request.htmx:
+            return render(
+                request,
+                'components/job_status.html',
+                {'job': job, 'status_url': reverse('generation:job-status', args=[job.public_id])},
+            )
         return JsonResponse(
             {
                 'id': str(job.public_id),
