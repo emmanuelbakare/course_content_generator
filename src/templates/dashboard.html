@@ -18,22 +18,19 @@
         <div class="panel-heading">
             <div>
                 <h2 id="courses-title">Your courses</h2>
-                <p>Course creation and curriculum review will appear here.</p>
+                <p>Recent courses you own.</p>
             </div>
         </div>
-        <div class="empty-state">
-            <h3>No course content has been generated yet</h3>
-            <p>Start by creating a course brief once the curriculum workflow is available.</p>
-        </div>
+        <div class="course-grid">{% for course in courses %}<article class="course-card"><h3><a href="{% url 'courses:detail' course.public_id %}">{{ course.title }}</a></h3><p>{{ course.get_status_display }} · updated {{ course.updated_at|date:"M j" }}</p></article>{% empty %}<div class="empty-state"><h3>No courses yet</h3><p>Create a course brief to begin.</p></div>{% endfor %}</div>
     </section>
 
     <section class="panel" aria-labelledby="jobs-title">
         <div class="panel-heading">
             <div>
                 <h2 id="jobs-title">Generation activity</h2>
-                <p>Long-running generation progress will appear here.</p>
+                <p>Recent generation and export work.</p>
             </div>
         </div>
-        {% include 'components/job_status.html' with job=None %}
+        <div class="version-list">{% for job in generation_jobs %}<div class="version-row"><span>{{ job.get_job_type_display }} generation</span><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span></div>{% empty %}<div class="empty-state compact"><p>No generation jobs yet.</p></div>{% endfor %}{% for job in export_jobs %}<div class="version-row"><span>{{ job.get_export_format_display }} export</span><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span></div>{% endfor %}</div>
     </section>
 {% endblock %}

@@ -8,12 +8,22 @@
         <a class="button button-secondary" href="{% url 'courses:detail' course.public_id %}">Course overview</a>
     </section>
     {% if curriculum %}
+        {% if curriculum.course_project %}
+            <section class="panel">
+                <h2>Course project: {{ curriculum.course_project.title }}</h2>
+                <p>{{ curriculum.course_project.description }}</p>
+                {% if curriculum.course_project.deliverables %}<h3>Deliverables</h3><ul>{% for item in curriculum.course_project.deliverables %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+                {% if curriculum.course_project.evaluation_criteria %}<h3>Evaluation criteria</h3><ul>{% for item in curriculum.course_project.evaluation_criteria %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}
+            </section>
+        {% endif %}
         <div class="workspace-layout">
             <aside class="curriculum-sidebar" aria-label="Course curriculum">
                 <h2>Curriculum</h2>
+                {% if curriculum.status == 'approved' %}<form method="post" action="{% url 'generation:lesson-batch-generate' course.public_id %}">{% csrf_token %}{% endif %}
                 {% for section in curriculum.sections.all %}
-                    <section class="sidebar-section"><h3>{{ section.position }}. {{ section.title }}</h3><ol>{% for lesson in section.lessons.all %}<li class="{% if lesson == selected_lesson %}selected{% endif %}"><a href="{% url 'courses:workspace' course.public_id %}?lesson={{ lesson.public_id }}">{{ lesson.position }}. {{ lesson.title }}</a><span>{{ lesson.duration_minutes }} min</span></li>{% endfor %}</ol></section>
+                    <section class="sidebar-section"><h3>{{ section.position }}. {{ section.title }}</h3><ol>{% for lesson in section.lessons.all %}<li class="{% if lesson == selected_lesson %}selected{% endif %}">{% if curriculum.status == 'approved' %}<label><input type="checkbox" name="lesson_ids" value="{{ lesson.public_id }}" aria-label="Select {{ lesson.title }} for generation"></label>{% endif %}<a href="{% url 'courses:workspace' course.public_id %}?lesson={{ lesson.public_id }}">{{ lesson.position }}. {{ lesson.title }}</a><span>{{ lesson.duration_minutes }} min</span></li>{% endfor %}</ol></section>
                 {% endfor %}
+                {% if curriculum.status == 'approved' %}<button class="button button-secondary" type="submit">Generate selected lessons</button></form>{% endif %}
             </aside>
             <section class="lesson-pane" aria-labelledby="lesson-title">
                 {% if selected_lesson %}
@@ -27,7 +37,7 @@
                     {% if active_job %}<form method="post" action="{% url 'generation:lesson-cancel' active_job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel generation</button></form>{% endif %}
                     <article class="lesson-content prose">{% if latest_revision %}{{ rendered_content }}{% else %}<div class="empty-state compact"><h3>No lesson content yet</h3><p>Generate a lesson or write the first instructor revision.</p></div>{% endif %}</article>
                     <details class="editor-panel"><summary>Edit lesson content</summary><form method="post" action="{% url 'courses:lesson-edit' course.public_id selected_lesson.public_id %}" class="stacked-form">{% csrf_token %}{% for field in revision_form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>{% endfor %}<button class="button button-primary" type="submit">Save new revision</button></form></details>
-                    <section class="revision-history"><h3>Revision history</h3><ol>{% for revision in selected_lesson.revisions.all %}<li><strong>Revision {{ revision.revision_number }}</strong> · {{ revision.created_at|date:"M j, Y H:i" }}{% if revision.change_summary %} — {{ revision.change_summary }}{% endif %}</li>{% empty %}<li>No revisions yet.</li>{% endfor %}</ol></section>
+                    <section class="revision-history"><h3>Revision history</h3><ol>{% for revision in selected_lesson.revisions.all %}<li><a href="{% url 'courses:lesson-revision-detail' course.public_id selected_lesson.public_id revision.public_id %}"><strong>Revision {{ revision.revision_number }}</strong></a> · {{ revision.created_at|date:"M j, Y H:i" }}{% if revision.change_summary %} — {{ revision.change_summary }}{% endif %}</li>{% empty %}<li>No revisions yet.</li>{% endfor %}</ol></section>
                 {% endif %}
             </section>
         </div>

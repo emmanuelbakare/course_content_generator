@@ -16,7 +16,7 @@ from courses.factories import (
     LessonRevisionFactory,
     UserFactory,
 )
-from courses.models import Course, CurriculumVersion
+from courses.models import Course, CourseProject, CurriculumVersion
 
 from .models import ExportJob
 from .services import ExportConfigurationError, enqueue_course_export, process_export_job
@@ -59,6 +59,13 @@ class ExportTestCase(TestCase):
         return process_export_job(job.public_id)
 
     def test_markdown_export_contains_course_and_lesson_content(self):
+        CourseProject.objects.create(
+            curriculum_version=self.curriculum,
+            title='Build a project',
+            description='Create a practical application.',
+            deliverables=['Repository'],
+            evaluation_criteria=['Working implementation'],
+        )
         job = self.create_and_process(ExportJob.Format.MARKDOWN)
 
         self.assertEqual(job.status, ExportJob.Status.SUCCEEDED)
@@ -67,6 +74,8 @@ class ExportTestCase(TestCase):
         self.assertIn('# Practical Django', content)
         self.assertIn('## Foundations', content)
         self.assertIn('Use migrations carefully.', content)
+        self.assertIn('Build a project', content)
+        self.assertIn('Working implementation', content)
         self.assertTrue(export_file.file.name.startswith(f'private_exports/{self.owner.pk}/'))
 
     def test_docx_export_is_a_readable_word_document(self):
@@ -126,6 +135,60 @@ class ExportTestCase(TestCase):
         self.client.force_login(UserFactory())
         self.assertEqual(self.client.get(reverse('exports:job-status', args=[job.public_id])).status_code, 404)
         self.assertEqual(self.client.get(reverse('exports:download', args=[job.public_id])).status_code, 404)
+
+    def test_htmx_status_is_owner_scoped_and_does_not_expose_private_paths(self):
+        job = self.create_and_process(ExportJob.Format.MARKDOWN)
+        self.client.force_login(self.owner)
+
+        response = self.client.get(
+            reverse('exports:job-status', args=[job.public_id]), HTTP_HX_REQUEST='true'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'export-job-status-{job.public_id}')
+        self.assertContains(response, 'Download')
+        self.assertNotContains(response, 'private_exports/')
+        self.client.force_login(UserFactory())
+        self.assertEqual(
+            self.client.get(
+                reverse('exports:job-status', args=[job.public_id]), HTTP_HX_REQUEST='true'
+            ).status_code,
+            404,
+        )
+
+    @patch('exports.tasks.run_export_job.delay')
+    def test_owner_can_cancel_queued_export_and_retry_a_failed_export(self, delay):
+        queued = enqueue_course_export(
+            course_id=self.course.pk,
+            requested_by=self.owner,
+            export_format=ExportJob.Format.MARKDOWN,
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.post(reverse('exports:cancel', args=[queued.public_id]))
+
+        self.assertRedirects(response, reverse('courses:detail', args=[self.course.public_id]))
+        queued.refresh_from_db()
+        self.assertEqual(queued.status, ExportJob.Status.CANCELLED)
+        self.assertEqual(queued.error_message, 'Cancelled before rendering began.')
+        self.assertEqual(process_export_job(queued.public_id).status, ExportJob.Status.CANCELLED)
+
+        failed = ExportJob.objects.create(
+            course=self.course,
+            curriculum_version=self.curriculum,
+            requested_by=self.owner,
+            export_format=ExportJob.Format.PDF,
+            status=ExportJob.Status.FAILED,
+            error_message='Renderer unavailable.',
+        )
+        response = self.client.post(reverse('exports:retry', args=[failed.public_id]))
+
+        self.assertRedirects(response, reverse('courses:detail', args=[self.course.public_id]))
+        self.assertEqual(ExportJob.objects.filter(course=self.course, export_format=ExportJob.Format.PDF).count(), 2)
+        self.assertEqual(delay.call_count, 2)
+        self.client.force_login(UserFactory())
+        self.assertEqual(self.client.post(reverse('exports:cancel', args=[failed.public_id])).status_code, 404)
+        self.assertEqual(self.client.post(reverse('exports:retry', args=[failed.public_id])).status_code, 404)
 
     @patch('exports.tasks.run_export_job.delay')
     def test_create_view_rejects_a_course_owned_by_someone_else(self, delay):

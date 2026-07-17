@@ -1,15 +1,21 @@
 """Generation job orchestration independent of views, HTML, and Celery transport."""
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 from pydantic import ValidationError as PydanticValidationError
 
-from courses.models import Course, Lesson, LessonRevision
-from courses.services import LessonSpec, ProjectSpec, SectionSpec, create_curriculum_revision
+from courses.models import Course, Lesson
+from courses.services import (
+    LessonSpec,
+    ProjectSpec,
+    SectionSpec,
+    create_curriculum_revision,
+    create_lesson_revision,
+)
 
 from .adapters import GenerationRequest, ProviderConfigurationError, get_adapter
 from .models import GenerationAttempt, GenerationJob, GenerationSettings
@@ -26,6 +32,18 @@ class RetryableGenerationError(RuntimeError):
 
 class ResponseValidationError(RuntimeError):
     """Raised when an LLM response cannot satisfy a required output schema."""
+
+
+class ActiveLessonGenerationJobError(RuntimeError):
+    """Raised when a lesson already has queued, running, or retrying generation work."""
+
+
+@dataclass(frozen=True)
+class BatchLessonEnqueueResult:
+    """Result from :func:`enqueue_lesson_jobs`, the batch workspace boundary."""
+
+    queued_jobs: tuple[GenerationJob, ...]
+    skipped_lessons: tuple[Lesson, ...]
 
 
 def enqueue_curriculum_job(course_id, revision_instruction=None):
@@ -45,16 +63,48 @@ def enqueue_curriculum_job(course_id, revision_instruction=None):
 def enqueue_lesson_job(lesson_id, revision_instruction=None):
     """Create and enqueue one lesson-generation job for later workspace use."""
     lesson = Lesson.objects.select_related('section__curriculum_version__course').get(pk=lesson_id)
-    job = _create_job(
-        course=lesson.section.curriculum_version.course,
-        lesson=lesson,
-        job_type=GenerationJob.JobType.LESSON,
-        revision_instruction=revision_instruction or '',
-    )
+    try:
+        with transaction.atomic():
+            if _has_active_lesson_job(lesson.pk):
+                raise ActiveLessonGenerationJobError(
+                    f'Lesson "{lesson.title}" already has an active generation job.'
+                )
+            job = _create_job(
+                course=lesson.section.curriculum_version.course,
+                lesson=lesson,
+                job_type=GenerationJob.JobType.LESSON,
+                revision_instruction=revision_instruction or '',
+            )
+    except IntegrityError as exc:
+        raise ActiveLessonGenerationJobError(
+            f'Lesson "{lesson.title}" already has an active generation job.'
+        ) from exc
     from .tasks import run_generation_job
 
     run_generation_job.delay(job.pk)
     return job
+
+
+def enqueue_lesson_jobs(lessons, *, revision_instruction='') -> BatchLessonEnqueueResult:
+    """Queue selected lessons, skipping any that already have active generation work.
+
+    Callers must owner-scope ``lessons`` before passing them here. This boundary is
+    deliberately independent of the workspace HTML and provider adapter internals.
+    """
+    queued_jobs = []
+    skipped_lessons = []
+    seen_lesson_ids = set()
+    for lesson in lessons:
+        if lesson.pk in seen_lesson_ids:
+            continue
+        seen_lesson_ids.add(lesson.pk)
+        try:
+            queued_jobs.append(
+                enqueue_lesson_job(lesson.pk, revision_instruction=revision_instruction)
+            )
+        except ActiveLessonGenerationJobError:
+            skipped_lessons.append(lesson)
+    return BatchLessonEnqueueResult(tuple(queued_jobs), tuple(skipped_lessons))
 
 
 def request_job_cancellation(job: GenerationJob) -> GenerationJob:
@@ -172,7 +222,10 @@ def _process_curriculum_job(job, adapter):
             created_by=course.owner,
             sections=sections,
             course_description=result.course_description,
+            overall_learning_outcomes=result.overall_learning_outcomes,
+            prerequisites=result.prerequisites,
             suggested_duration_minutes=result.suggested_duration_minutes,
+            duration_estimate_explanation=result.duration_estimate_explanation,
             revision_instruction=job.input_metadata.get('revision_instruction', ''),
             project=project,
         )
@@ -198,33 +251,29 @@ def _process_lesson_job(job, adapter):
         request,
         LessonOutput,
         prompt_template_version='lesson-v1',
+        result_validator=lambda output: _validate_lesson_duration(output, lesson),
     )
     if result is None:
         return GenerationJob.objects.get(pk=job.pk)
     if _cancel_if_requested(job):
         return job
 
-    with transaction.atomic():
-        locked_lesson = Lesson.objects.select_for_update().select_related(
-            'section__curriculum_version__course'
-        ).get(pk=lesson.pk)
-        revision_number = (locked_lesson.revisions.aggregate(Max('revision_number'))['revision_number__max'] or 0) + 1
-        revision = LessonRevision(
-            lesson=locked_lesson,
-            created_by=locked_lesson.section.curriculum_version.course.owner,
-            revision_number=revision_number,
-            content_markdown=result.content_markdown,
-            metadata=result.metadata,
-            change_summary='Generated lesson content',
-        )
-        revision.full_clean()
-        revision.save()
-        locked_lesson.status = Lesson.Status.READY
-        locked_lesson.save(update_fields=('status', 'updated_at'))
+    create_lesson_revision(
+        lesson,
+        created_by=lesson.section.curriculum_version.course.owner,
+        content_markdown=_render_lesson_markdown(result),
+        metadata={
+            'generation_schema_version': 'lesson-v2',
+            'lesson_plan': result.model_dump(mode='json'),
+        },
+        change_summary='Generated structured lesson content',
+    )
     return _mark_job_succeeded(job)
 
 
-def _generate_with_bounded_continuations(job, adapter, request, schema, *, prompt_template_version):
+def _generate_with_bounded_continuations(
+    job, adapter, request, schema, *, prompt_template_version, result_validator=None
+):
     settings = GenerationSettings.get_solo()
     continuation = 0
     current_request = request
@@ -246,6 +295,8 @@ def _generate_with_bounded_continuations(job, adapter, request, schema, *, promp
             return None
         try:
             parsed = _parse_response(response.text, schema)
+            if result_validator:
+                result_validator(parsed)
         except ResponseValidationError as exc:
             _fail_attempt(attempt, 'response_validation_error', str(exc))
             if continuation >= settings.max_continuations:
@@ -342,6 +393,18 @@ def _terminal_statuses():
     }
 
 
+def _has_active_lesson_job(lesson_id) -> bool:
+    return GenerationJob.objects.filter(
+        lesson_id=lesson_id,
+        job_type=GenerationJob.JobType.LESSON,
+        status__in=(
+            GenerationJob.Status.QUEUED,
+            GenerationJob.Status.RUNNING,
+            GenerationJob.Status.RETRYING,
+        ),
+    ).exists()
+
+
 def _parse_response(text, schema):
     try:
         payload = json.loads(_strip_code_fence(text))
@@ -365,12 +428,15 @@ def _curriculum_request(course, revision_instruction):
     return GenerationRequest(
         model='',
         prompt=(
-            'Return JSON only with course_description, suggested_duration_minutes, sections, and optional project. '
+            'Return JSON only with course_description, overall_learning_outcomes, prerequisites, '
+            'suggested_duration_minutes, duration_estimate_explanation, sections, and optional project. '
             'Each section must contain title, duration_minutes, learning_outcomes, summary, and lessons. '
             'Each lesson must contain title, duration_minutes, objectives, and outline.\n\n'
             f'Course title: {course.title}\nTopic: {course.topic}\nAudience: {course.target_audience}\n'
             f'Level: {course.level}\nTarget duration: {duration}\nLearning outcomes: {course.learning_outcomes}\n'
-            f'Constraints: {course.constraints}\nRevision instruction: {revision_instruction}'
+            f'Prerequisites from brief: {course.prerequisites}\nConstraints: {course.constraints}\n'
+            f'Revision instruction: {revision_instruction}\n'
+            'The suggested duration must equal the sum of all lesson durations. Explain the estimate.'
         ),
     )
 
@@ -380,14 +446,82 @@ def _lesson_request(lesson, revision_instruction=''):
     return GenerationRequest(
         model='',
         prompt=(
-            'Return JSON only with content_markdown and metadata. content_markdown must be an instructor-ready '
-            'lesson package with objectives, preparation, timed teaching flow, explanations, examples, activities, '
-            'and assessment.\n\n'
+            'Return JSON only. The object must include objectives, expected_duration_minutes, preparation, '
+            'materials, timed_teaching_flow, concepts_explanations, examples, activities, assessment, '
+            'common_misconceptions, and optional project_linkage. Every list must contain at least one item. '
+            'Each timed_teaching_flow item needs title, description, and duration_minutes; their durations must '
+            'total expected_duration_minutes. Each activity needs title, description, and expected_output. '
+            'assessment needs check_for_understanding and expected_answers_or_rubric. Each concept, example, and '
+            'misconception needs title and description. project_linkage, when present, needs project_title and '
+            'connection. expected_duration_minutes must equal the planned lesson duration.\n\n'
             f'Course: {course.title}\nSection: {lesson.section.title}\nLesson: {lesson.title}\n'
             f'Duration: {lesson.duration_minutes}\nObjectives: {lesson.objectives}\nOutline: {lesson.outline}\n'
             f'Revision instruction: {revision_instruction}'
         ),
     )
+
+
+def _validate_lesson_duration(result: LessonOutput, lesson: Lesson):
+    if result.expected_duration_minutes != lesson.duration_minutes:
+        raise ResponseValidationError(
+            f'Expected lesson duration must be {lesson.duration_minutes} minutes, '
+            f'not {result.expected_duration_minutes}.'
+        )
+
+
+def _render_lesson_markdown(result: LessonOutput) -> str:
+    """Turn validated provider data into an instructor-editable Markdown revision."""
+
+    lines = [
+        '## Learning objectives',
+        *[f'- {objective}' for objective in result.objectives],
+        '',
+        f'## Expected duration\n\n{result.expected_duration_minutes} minutes',
+        '',
+        '## Preparation',
+        *[f'- {item}' for item in result.preparation],
+        '',
+        '## Materials',
+        *[f'- {item}' for item in result.materials],
+        '',
+        '## Timed teaching flow',
+    ]
+    for step in result.timed_teaching_flow:
+        lines.extend((f'### {step.title} ({step.duration_minutes} minutes)', step.description, ''))
+    lines.append('## Concepts and explanations')
+    for concept in result.concepts_explanations:
+        lines.extend((f'### {concept.title}', concept.description, ''))
+    lines.append('## Examples')
+    for example in result.examples:
+        lines.extend((f'### {example.title}', example.description, ''))
+    lines.append('## Activities')
+    for activity in result.activities:
+        lines.extend(
+            (f'### {activity.title}', activity.description, '**Expected learner output:**', activity.expected_output, '')
+        )
+    lines.extend(
+        (
+            '## Assessment / check for understanding',
+            result.assessment.check_for_understanding,
+            '',
+            '### Expected answers or rubric',
+            *[f'- {item}' for item in result.assessment.expected_answers_or_rubric],
+            '',
+            '## Common misconceptions',
+        )
+    )
+    for misconception in result.common_misconceptions:
+        lines.extend((f'### {misconception.title}', misconception.description, ''))
+    if result.project_linkage:
+        lines.extend(
+            (
+                '## Project linkage',
+                f'### {result.project_linkage.project_title}',
+                result.project_linkage.connection,
+                '',
+            )
+        )
+    return '\n'.join(lines).strip() + '\n'
 
 
 def _continuation_request(original, validation_message):

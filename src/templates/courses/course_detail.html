@@ -9,7 +9,7 @@
             <h1 id="course-title">{{ course.title }}</h1>
             <p>{{ course.topic }}</p>
         </div>
-        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:workspace' course.public_id %}">Open workspace</a><a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a></div>
+        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:workspace' course.public_id %}">Open workspace</a><a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a>{% if curriculum_versions|length > 1 %}<a class="button button-secondary" href="{% url 'courses:curriculum-compare' course.public_id %}">Compare versions</a>{% endif %}</div>
     </section>
     {% if course.status == 'approved' %}
         <section class="panel">
@@ -48,4 +48,6 @@
             {% endfor %}
         </div>
     </section>
+    {% if generation_jobs %}<section class="panel"><h2>Curriculum generation activity</h2><div class="version-list">{% for job in generation_jobs %}{% include 'components/curriculum_job_status.html' with job=job %}{% endfor %}</div></section>{% endif %}
+    {% if export_jobs %}<section class="panel"><h2>Export history</h2><div class="version-list">{% for job in export_jobs %}{% include 'components/export_job_status.html' with job=job %}{% endfor %}</div></section>{% endif %}
 {% endblock %}

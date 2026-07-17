@@ -22,8 +22,10 @@
                 <p>{{ course.topic|truncatechars:180 }}</p>
                 <dl class="metadata-list">
                     <div><dt>Level</dt><dd>{{ course.get_level_display }}</dd></div>
-                    <div><dt>Duration</dt><dd>{% if course.desired_duration_minutes %}{{ course.desired_duration_minutes }} minutes{% else %}To be proposed{% endif %}</dd></div>
-                    <div><dt>Curricula</dt><dd>{{ course.curriculum_versions.count }}</dd></div>
+                    <div><dt>Duration</dt><dd>{% if course.active_duration_minutes %}Active: {{ course.active_duration_minutes }} minutes{% elif course.proposed_duration_minutes %}Proposed: {{ course.proposed_duration_minutes }} minutes{% elif course.desired_duration_minutes %}Requested: {{ course.desired_duration_minutes }} minutes{% else %}Not yet proposed{% endif %}</dd></div>
+                    <div><dt>Progress</dt><dd>{% if course.approved_lesson_total %}{{ course.completed_lesson_count }} of {{ course.approved_lesson_total }} lessons ready{% else %}Available after curriculum approval{% endif %}</dd></div>
+                    <div><dt>Curricula</dt><dd>{{ course.curriculum_version_count }}</dd></div>
+                    <div><dt>Last updated</dt><dd>{{ course.updated_at|date:"M j, Y H:i" }}</dd></div>
                 </dl>
             </article>
         {% empty %}

@@ -198,6 +198,16 @@ class GenerationJob(models.Model):
 
     class Meta:
         ordering = ('-created_at',)
+        constraints = [
+            models.UniqueConstraint(
+                fields=('lesson',),
+                condition=models.Q(
+                    job_type='lesson',
+                    status__in=('queued', 'running', 'retrying'),
+                ),
+                name='unique_active_lesson_generation_job',
+            )
+        ]
 
     def __str__(self):
         return f'{self.get_job_type_display()} job {self.public_id}'

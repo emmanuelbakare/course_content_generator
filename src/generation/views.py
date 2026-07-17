@@ -19,7 +19,11 @@ class GenerationJobStatusView(LoginRequiredMixin, View):
         if request.htmx:
             return render(
                 request,
-                'components/job_status.html',
+                (
+                    'components/curriculum_job_status.html'
+                    if job.job_type == GenerationJob.JobType.CURRICULUM
+                    else 'components/job_status.html'
+                ),
                 {'job': job, 'status_url': reverse('generation:job-status', args=[job.public_id])},
             )
         return JsonResponse(

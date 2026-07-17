@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block title %}Revision {{ revision.revision_number }} · {{ lesson.title }}{% endblock %}
+
+{% block content %}
+    <section class="workspace-header">
+        <div>
+            <p class="eyebrow">Lesson revision history</p>
+            <h1>{{ lesson.title }} — revision {{ revision.revision_number }}</h1>
+            <p>Created {{ revision.created_at|date:"M j, Y H:i" }}{% if revision.change_summary %} · {{ revision.change_summary }}{% endif %}</p>
+        </div>
+        <a class="button button-secondary" href="{% url 'courses:workspace' course.public_id %}?lesson={{ lesson.public_id }}">Back to workspace</a>
+    </section>
+    <section class="panel">
+        <div class="lesson-actions">
+            <form method="post" action="{% url 'courses:lesson-revision-restore' course.public_id lesson.public_id revision.public_id %}">
+                {% csrf_token %}
+                <button class="button button-primary" type="submit">Restore as new revision</button>
+            </form>
+        </div>
+        <p>This copies this historical revision into a new latest revision. It does not overwrite or alter the historical record.</p>
+        <article class="lesson-content prose">{{ rendered_content }}</article>
+    </section>
+{% endblock %}

@@ -27,7 +27,7 @@ class AuthenticationShellTests(TestCase):
         self.assertRedirects(response, reverse('accounts:dashboard'))
         response = self.client.get(reverse('accounts:dashboard'))
         self.assertContains(response, 'Welcome back, author')
-        self.assertContains(response, 'No course content has been generated yet')
+        self.assertContains(response, 'No courses yet')
 
     def test_user_can_log_out_with_a_post_request(self):
         self.client.force_login(self.user)

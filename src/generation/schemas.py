@@ -1,8 +1,6 @@
 """Structured LLM output contracts for generation orchestration."""
 
-from typing import Any
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CurriculumLessonOutput(BaseModel):
@@ -29,11 +27,65 @@ class CourseProjectOutput(BaseModel):
 
 class CurriculumOutput(BaseModel):
     course_description: str = ''
-    suggested_duration_minutes: int | None = Field(default=None, gt=0)
+    overall_learning_outcomes: list[str] = Field(min_length=1)
+    prerequisites: str = ''
+    suggested_duration_minutes: int = Field(gt=0)
+    duration_estimate_explanation: str = Field(min_length=1)
     sections: list[CurriculumSectionOutput] = Field(min_length=1)
     project: CourseProjectOutput | None = None
 
 
+class LessonPlanItem(BaseModel):
+    """A named, explanatory item in an instructor lesson plan."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+
+    title: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1)
+
+
+class TimedTeachingFlowItem(LessonPlanItem):
+    duration_minutes: int = Field(gt=0)
+
+
+class LessonActivity(LessonPlanItem):
+    expected_output: str = Field(min_length=1)
+
+
+class LessonAssessment(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+
+    check_for_understanding: str = Field(min_length=1)
+    expected_answers_or_rubric: list[str] = Field(min_length=1)
+
+
+class ProjectLinkage(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+
+    project_title: str = Field(min_length=1, max_length=255)
+    connection: str = Field(min_length=1)
+
+
 class LessonOutput(BaseModel):
-    content_markdown: str = Field(min_length=1)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    """Complete, machine-validated source for one instructor-ready lesson."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+
+    objectives: list[str] = Field(min_length=1)
+    expected_duration_minutes: int = Field(gt=0)
+    preparation: list[str] = Field(min_length=1)
+    materials: list[str] = Field(min_length=1)
+    timed_teaching_flow: list[TimedTeachingFlowItem] = Field(min_length=1)
+    concepts_explanations: list[LessonPlanItem] = Field(min_length=1)
+    examples: list[LessonPlanItem] = Field(min_length=1)
+    activities: list[LessonActivity] = Field(min_length=1)
+    assessment: LessonAssessment
+    common_misconceptions: list[LessonPlanItem] = Field(min_length=1)
+    project_linkage: ProjectLinkage | None = None
+
+    @model_validator(mode='after')
+    def teaching_flow_matches_expected_duration(self):
+        total = sum(step.duration_minutes for step in self.timed_teaching_flow)
+        if total != self.expected_duration_minutes:
+            raise ValueError('Timed teaching flow must total expected_duration_minutes.')
+        return self

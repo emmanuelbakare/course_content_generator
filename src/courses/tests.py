@@ -11,6 +11,7 @@ from .services import (
     SectionSpec,
     create_curriculum_revision,
     create_draft_course,
+    restore_curriculum_version,
 )
 
 
@@ -98,6 +99,28 @@ class CourseServiceTests(TestCase):
         self.assertEqual(list(first.sections.values_list('position', flat=True)), [1])
         self.assertEqual(list(first.sections.first().lessons.values_list('position', flat=True)), [1, 2])
         self.assertEqual(first.course_project.title, 'Build a blog')
+        self.assertEqual(first.calculated_duration_minutes, 60)
+        self.assertEqual(first.suggested_duration_minutes, 60)
+
+    def test_revision_without_requested_duration_persists_the_estimate_and_total(self):
+        course = create_draft_course(
+            self.owner,
+            title='Flexible course',
+            topic='A flexible course plan.',
+            learning_outcomes=['Apply the material.'],
+            prerequisites='None.',
+        )
+
+        curriculum = create_curriculum_revision(
+            course,
+            sections=self.sections,
+            duration_estimate_explanation='Two lessons require one hour.',
+        )
+
+        self.assertEqual(curriculum.suggested_duration_minutes, 60)
+        self.assertEqual(curriculum.calculated_duration_minutes, 60)
+        self.assertEqual(curriculum.overall_learning_outcomes, ['Apply the material.'])
+        self.assertEqual(curriculum.prerequisites, 'None.')
 
     def test_revision_service_rejects_duration_mismatch(self):
         course = create_draft_course(
@@ -109,3 +132,30 @@ class CourseServiceTests(TestCase):
 
         with self.assertRaises(ValidationError):
             create_curriculum_revision(course, sections=self.sections)
+
+    def test_restore_creates_a_new_draft_without_mutating_the_source(self):
+        course = create_draft_course(
+            self.owner,
+            title='Django fundamentals',
+            topic='A practical introduction to Django.',
+            desired_duration_minutes=60,
+        )
+        source = create_curriculum_revision(
+            course,
+            sections=self.sections,
+            project=ProjectSpec(title='Build a blog', description='Create a small blog.'),
+            approve=True,
+        )
+        replacement = create_curriculum_revision(course, sections=self.sections, approve=True)
+        source.refresh_from_db()
+
+        restored = restore_curriculum_version(source, restored_by=self.owner)
+
+        source.refresh_from_db()
+        self.assertEqual(source.status, CurriculumVersion.Status.SUPERSEDED)
+        self.assertEqual(replacement.status, CurriculumVersion.Status.APPROVED)
+        self.assertEqual(restored.status, CurriculumVersion.Status.DRAFT)
+        self.assertEqual(restored.source_version, source)
+        self.assertEqual(restored.change_summary, 'Restored from curriculum version 1.')
+        self.assertEqual(restored.sections.get().lessons.count(), 2)
+        self.assertEqual(restored.course_project.title, 'Build a blog')

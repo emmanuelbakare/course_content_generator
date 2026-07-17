@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from generation.models import GenerationJob, LLMModel, LLMProvider
+from generation.models import GenerationJob, GenerationSettings, LLMModel, LLMProvider
 
 from .services import (
     LessonSpec,
@@ -31,12 +31,16 @@ class CourseWorkspaceTests(TestCase):
                 SectionSpec(
                     title='Foundations',
                     duration_minutes=60,
-                    lessons=[LessonSpec(title='Variables', duration_minutes=60)],
+                    lessons=[
+                        LessonSpec(title='Variables', duration_minutes=30),
+                        LessonSpec(title='Practice', duration_minutes=30),
+                    ],
                 )
             ],
             approve=True,
         )
-        self.lesson = self.curriculum.sections.get().lessons.get()
+        self.lesson = self.curriculum.sections.get().lessons.get(position=1)
+        self.second_lesson = self.curriculum.sections.get().lessons.get(position=2)
         create_lesson_revision(
             self.lesson,
             created_by=self.owner,
@@ -49,6 +53,10 @@ class CourseWorkspaceTests(TestCase):
             api_key_environment_variable='TEST_PROVIDER_API_KEY',
         )
         self.model = LLMModel.objects.create(provider=self.provider, identifier='test-model')
+        settings = GenerationSettings.get_solo()
+        settings.default_provider = self.provider
+        settings.default_model = self.model
+        settings.save()
         self.workspace_url = reverse('courses:workspace', args=[self.course.public_id])
 
     def create_job(self, status=GenerationJob.Status.QUEUED, **kwargs):
@@ -73,6 +81,7 @@ class CourseWorkspaceTests(TestCase):
         self.assertNotContains(response, '<script>')
         self.assertNotIn('javascript:', str(response.context['rendered_content']))
         self.assertContains(response, 'Revision 1')
+        self.assertContains(response, 'Generate selected lessons')
 
     def test_workspace_edit_creates_a_new_lesson_revision(self):
         self.client.force_login(self.owner)
@@ -129,6 +138,61 @@ class CourseWorkspaceTests(TestCase):
         self.assertRedirects(response, f'{self.workspace_url}?lesson={self.lesson.public_id}')
         self.assertIsNotNone(job.cancellation_requested_at)
 
+    @patch('generation.tasks.run_generation_job.delay')
+    def test_batch_generation_queues_selected_lessons_and_skips_active_jobs(self, delay):
+        active_job = self.create_job()
+        self.client.force_login(self.owner)
+
+        response = self.client.post(
+            reverse('generation:lesson-batch-generate', args=[self.course.public_id]),
+            {'lesson_ids': [str(self.lesson.public_id), str(self.second_lesson.public_id)]},
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Queued generation for 1 lesson(s).')
+        self.assertContains(response, 'Skipped 1 lesson(s) with active generation jobs: Variables.')
+        self.assertEqual(
+            GenerationJob.objects.filter(lesson=self.lesson).count(),
+            1,
+        )
+        self.assertEqual(GenerationJob.objects.filter(lesson=self.second_lesson).count(), 1)
+        delay.assert_called_once_with(GenerationJob.objects.get(lesson=self.second_lesson).pk)
+        self.assertEqual(active_job.status, GenerationJob.Status.QUEUED)
+
+    def test_revision_history_can_be_viewed_and_restored_as_a_new_revision(self):
+        current = create_lesson_revision(
+            self.lesson,
+            created_by=self.owner,
+            content_markdown='# Newer version',
+            metadata={'origin': 'manual'},
+            change_summary='Newer wording',
+        )
+        source = self.lesson.revisions.get(revision_number=1)
+        detail_url = reverse(
+            'courses:lesson-revision-detail',
+            args=[self.course.public_id, self.lesson.public_id, source.public_id],
+        )
+        restore_url = reverse(
+            'courses:lesson-revision-restore',
+            args=[self.course.public_id, self.lesson.public_id, source.public_id],
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.get(detail_url)
+        self.assertContains(response, '<h1>Variables</h1>', html=True)
+        response = self.client.post(restore_url)
+
+        self.assertRedirects(response, f'{self.workspace_url}?lesson={self.lesson.public_id}')
+        self.lesson.refresh_from_db()
+        restored = self.lesson.revisions.first()
+        self.assertEqual(self.lesson.revisions.count(), 3)
+        self.assertEqual(restored.content_markdown, source.content_markdown)
+        self.assertEqual(restored.metadata, source.metadata)
+        self.assertEqual(restored.change_summary, 'Restored from revision 1.')
+        current.refresh_from_db()
+        self.assertEqual(current.content_markdown, '# Newer version')
+
     def test_other_user_cannot_call_lesson_generation_actions(self):
         job = self.create_job(status=GenerationJob.Status.FAILED)
         self.client.force_login(self.other_user)
@@ -143,5 +207,34 @@ class CourseWorkspaceTests(TestCase):
         )
         self.assertEqual(
             self.client.post(reverse('generation:lesson-cancel', args=[job.public_id])).status_code,
+            404,
+        )
+        revision = self.lesson.revisions.first()
+        self.assertEqual(
+            self.client.post(
+                reverse(
+                    'generation:lesson-batch-generate',
+                    args=[self.course.public_id],
+                ),
+                {'lesson_ids': [str(self.lesson.public_id)]},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse(
+                    'courses:lesson-revision-detail',
+                    args=[self.course.public_id, self.lesson.public_id, revision.public_id],
+                )
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse(
+                    'courses:lesson-revision-restore',
+                    args=[self.course.public_id, self.lesson.public_id, revision.public_id],
+                )
+            ).status_code,
             404,
         )

@@ -93,7 +93,11 @@ class CurriculumVersion(models.Model):
     version_number = models.PositiveIntegerField(validators=[MinValueValidator(1)])
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     course_description = models.TextField(blank=True)
+    overall_learning_outcomes = models.JSONField(default=list, blank=True)
+    prerequisites = models.TextField(blank=True)
     suggested_duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    calculated_duration_minutes = models.PositiveIntegerField(null=True, blank=True)
+    duration_estimate_explanation = models.TextField(blank=True)
     revision_instruction = models.TextField(blank=True)
     change_summary = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -121,6 +125,16 @@ class CurriculumVersion(models.Model):
             raise ValidationError({'created_by': 'The curriculum creator must own the course.'})
         if self.source_version_id and self.course_id and self.source_version.course_id != self.course_id:
             raise ValidationError({'source_version': 'The source version must belong to this course.'})
+        if not isinstance(self.overall_learning_outcomes, list):
+            raise ValidationError({'overall_learning_outcomes': 'Overall learning outcomes must be a list.'})
+        if (
+            self.suggested_duration_minutes
+            and self.calculated_duration_minutes
+            and self.suggested_duration_minutes != self.calculated_duration_minutes
+        ):
+            raise ValidationError(
+                {'suggested_duration_minutes': 'The proposed duration must equal the calculated lesson total.'}
+            )
 
 
 class CourseSection(models.Model):

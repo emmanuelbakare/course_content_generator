@@ -70,7 +70,10 @@ class FullCourseLifecycleTests(TestCase):
         curriculum_response = json.dumps(
             {
                 'course_description': 'A compact, practical Python course.',
+                'overall_learning_outcomes': ['Build a small Python program.'],
+                'prerequisites': 'A working Python installation.',
                 'suggested_duration_minutes': 60,
+                'duration_estimate_explanation': 'One guided 60-minute lesson fits the requested duration.',
                 'sections': [
                     {
                         'title': 'Getting started',
@@ -109,7 +112,51 @@ class FullCourseLifecycleTests(TestCase):
         lesson = curriculum.sections.get().lessons.get()
 
         lesson_adapter = FakeLifecycleAdapter(
-            [json.dumps({'content_markdown': '# First program\n\nWrite a safe example.', 'metadata': {}})]
+            [
+                json.dumps(
+                    {
+                        'objectives': ['Write and run a Python program.'],
+                        'expected_duration_minutes': 60,
+                        'preparation': ['Open a Python interpreter.'],
+                        'materials': ['Python 3.12'],
+                        'timed_teaching_flow': [
+                            {
+                                'title': 'Demonstration',
+                                'description': 'Show a small program.',
+                                'duration_minutes': 30,
+                            },
+                            {
+                                'title': 'Practice',
+                                'description': 'Learners write their own program.',
+                                'duration_minutes': 30,
+                            },
+                        ],
+                        'concepts_explanations': [
+                            {'title': 'First program', 'description': 'Write a safe example.'},
+                        ],
+                        'examples': [
+                            {'title': 'Greeting', 'description': "Print 'Hello, world!'."},
+                        ],
+                        'activities': [
+                            {
+                                'title': 'Create a greeting',
+                                'description': 'Write and run a greeting program.',
+                                'expected_output': 'A greeting in the terminal.',
+                            },
+                        ],
+                        'assessment': {
+                            'check_for_understanding': 'Ask learners to explain their program.',
+                            'expected_answers_or_rubric': ['The program runs and prints a message.'],
+                        },
+                        'common_misconceptions': [
+                            {
+                                'title': 'Output versus source',
+                                'description': 'Clarify that source code is not its printed output.',
+                            },
+                        ],
+                    }
+                )
+            ]
         )
         with patch('generation.tasks.run_generation_job.delay') as delay:
             lesson_job = enqueue_lesson_job(lesson.pk)

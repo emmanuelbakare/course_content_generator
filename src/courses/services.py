@@ -1,6 +1,7 @@
 """Service-layer APIs for constructing course and curriculum snapshots."""
 
 from collections.abc import Sequence
+from copy import deepcopy
 from dataclasses import dataclass, field
 
 from django.core.exceptions import ValidationError
@@ -43,7 +44,7 @@ def create_draft_course(owner, *, title: str, topic: str, **attributes) -> Cours
     return course
 
 
-def _validate_curriculum_spec(course: Course, sections: Sequence[SectionSpec]) -> None:
+def _validate_curriculum_spec(course: Course, sections: Sequence[SectionSpec]) -> int:
     if not sections:
         raise ValidationError('A curriculum revision requires at least one section.')
 
@@ -65,6 +66,7 @@ def _validate_curriculum_spec(course: Course, sections: Sequence[SectionSpec]) -
         raise ValidationError(
             'Curriculum duration must equal the course desired duration in minutes.'
         )
+    return total_duration
 
 
 def create_curriculum_revision(
@@ -73,10 +75,14 @@ def create_curriculum_revision(
     sections: Sequence[SectionSpec],
     created_by=None,
     course_description: str = '',
+    overall_learning_outcomes: list[str] | None = None,
+    prerequisites: str | None = None,
     suggested_duration_minutes: int | None = None,
+    duration_estimate_explanation: str = '',
     revision_instruction: str = '',
     change_summary: str = '',
     project: ProjectSpec | None = None,
+    source_version: CurriculumVersion | None = None,
     approve: bool = False,
 ) -> CurriculumVersion:
     """Create an immutable curriculum snapshot and its ordered child objects.
@@ -87,7 +93,22 @@ def create_curriculum_revision(
     created_by = created_by or course.owner
     if created_by.pk != course.owner_id:
         raise ValidationError('Only the course owner may create a curriculum revision.')
-    _validate_curriculum_spec(course, sections)
+    calculated_duration_minutes = _validate_curriculum_spec(course, sections)
+    overall_learning_outcomes = (
+        list(course.learning_outcomes)
+        if overall_learning_outcomes is None
+        else overall_learning_outcomes
+    )
+    prerequisites = course.prerequisites if prerequisites is None else prerequisites
+    if course.desired_duration_minutes is None:
+        suggested_duration_minutes = suggested_duration_minutes or calculated_duration_minutes
+        if suggested_duration_minutes != calculated_duration_minutes:
+            raise ValidationError('The proposed duration must equal the calculated lesson total.')
+    elif suggested_duration_minutes is None:
+        suggested_duration_minutes = calculated_duration_minutes
+    duration_estimate_explanation = duration_estimate_explanation or (
+        f'The curriculum allocates {calculated_duration_minutes} minutes across its lessons.'
+    )
 
     try:
         with transaction.atomic():
@@ -97,6 +118,8 @@ def create_curriculum_revision(
                 .order_by('-version_number')
                 .first()
             )
+            if source_version is not None and source_version.course_id != locked_course.pk:
+                raise ValidationError('The source curriculum version must belong to the course.')
             version_number = (latest_version.version_number if latest_version else 0) + 1
             if approve:
                 CurriculumVersion.objects.filter(
@@ -105,12 +128,16 @@ def create_curriculum_revision(
                 ).update(status=CurriculumVersion.Status.SUPERSEDED)
             curriculum = CurriculumVersion(
                 course=locked_course,
-                source_version=latest_version,
+                source_version=source_version or latest_version,
                 created_by=created_by,
                 version_number=version_number,
                 status=(CurriculumVersion.Status.APPROVED if approve else CurriculumVersion.Status.DRAFT),
                 course_description=course_description,
+                overall_learning_outcomes=overall_learning_outcomes,
+                prerequisites=prerequisites,
                 suggested_duration_minutes=suggested_duration_minutes,
+                calculated_duration_minutes=calculated_duration_minutes,
+                duration_estimate_explanation=duration_estimate_explanation,
                 revision_instruction=revision_instruction,
                 change_summary=change_summary,
             )
@@ -159,6 +186,56 @@ def create_curriculum_revision(
         raise ValidationError('Could not create a unique curriculum revision.') from exc
 
 
+def restore_curriculum_version(source: CurriculumVersion, *, restored_by) -> CurriculumVersion:
+    """Clone a historical version into a new draft without changing the source."""
+    source = CurriculumVersion.objects.prefetch_related(
+        'sections__lessons', 'course_project'
+    ).select_related('course').get(pk=source.pk)
+    if restored_by.pk != source.course.owner_id:
+        raise ValidationError('Only the course owner may restore a curriculum version.')
+    sections = [
+        SectionSpec(
+            title=section.title,
+            duration_minutes=section.duration_minutes,
+            summary=section.summary,
+            learning_outcomes=list(section.learning_outcomes),
+            lessons=[
+                LessonSpec(
+                    title=lesson.title,
+                    duration_minutes=lesson.duration_minutes,
+                    objectives=list(lesson.objectives),
+                    outline=lesson.outline,
+                )
+                for lesson in section.lessons.all()
+            ],
+        )
+        for section in source.sections.all()
+    ]
+    project = None
+    if hasattr(source, 'course_project'):
+        source_project = source.course_project
+        project = ProjectSpec(
+            title=source_project.title,
+            description=source_project.description,
+            deliverables=list(source_project.deliverables),
+            evaluation_criteria=list(source_project.evaluation_criteria),
+        )
+    return create_curriculum_revision(
+        source.course,
+        created_by=restored_by,
+        sections=sections,
+        course_description=source.course_description,
+        overall_learning_outcomes=list(source.overall_learning_outcomes),
+        prerequisites=source.prerequisites,
+        suggested_duration_minutes=source.suggested_duration_minutes,
+        duration_estimate_explanation=source.duration_estimate_explanation,
+        revision_instruction=source.revision_instruction,
+        change_summary=f'Restored from curriculum version {source.version_number}.',
+        project=project,
+        source_version=source,
+    )
+
+
 def approve_curriculum_version(curriculum: CurriculumVersion, *, approved_by) -> CurriculumVersion:
     """Approve a draft snapshot without changing its curriculum content."""
     if approved_by.pk != curriculum.course.owner_id:
@@ -202,3 +279,19 @@ def create_lesson_revision(lesson: Lesson, *, created_by, content_markdown: str,
         locked_lesson.status = Lesson.Status.READY
         locked_lesson.save(update_fields=('status', 'updated_at'))
     return revision
+
+
+def restore_lesson_revision(source: LessonRevision, *, restored_by) -> LessonRevision:
+    """Append a new revision cloned from history; source content is never modified."""
+    source = LessonRevision.objects.select_related(
+        'lesson__section__curriculum_version__course'
+    ).get(pk=source.pk)
+    if restored_by.pk != source.lesson.section.curriculum_version.course.owner_id:
+        raise ValidationError('Only the course owner may restore a lesson revision.')
+    return create_lesson_revision(
+        source.lesson,
+        created_by=restored_by,
+        content_markdown=source.content_markdown,
+        metadata=deepcopy(source.metadata),
+        change_summary=f'Restored from revision {source.revision_number}.',
+    )

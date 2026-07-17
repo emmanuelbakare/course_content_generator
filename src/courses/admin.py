@@ -27,10 +27,10 @@ class CourseAdmin(admin.ModelAdmin):
 
 @admin.register(CurriculumVersion)
 class CurriculumVersionAdmin(admin.ModelAdmin):
-    list_display = ('course', 'version_number', 'status', 'created_by', 'created_at')
+    list_display = ('course', 'version_number', 'status', 'suggested_duration_minutes', 'calculated_duration_minutes', 'created_by', 'created_at')
     list_filter = ('status',)
     search_fields = ('course__title',)
-    readonly_fields = ('public_id', 'created_at')
+    readonly_fields = ('public_id', 'calculated_duration_minutes', 'created_at')
     inlines = (CourseSectionInline,)
 
 

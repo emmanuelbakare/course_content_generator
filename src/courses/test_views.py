@@ -3,10 +3,18 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.test.client import RequestFactory
 from django.urls import reverse
 
-from .models import Course, CurriculumVersion
-from .services import LessonSpec, SectionSpec, create_curriculum_revision, create_draft_course
+from .models import Course, CurriculumVersion, Lesson
+from .services import (
+    LessonSpec,
+    ProjectSpec,
+    SectionSpec,
+    create_curriculum_revision,
+    create_draft_course,
+)
+from .views import CourseListView
 
 
 class CourseAuthoringWorkflowTests(TestCase):
@@ -35,6 +43,59 @@ class CourseAuthoringWorkflowTests(TestCase):
 
         self.assertContains(response, 'Python foundations')
         self.assertNotContains(response, 'Private course')
+
+    def test_course_list_displays_approved_duration_and_lesson_completion(self):
+        curriculum = create_curriculum_revision(self.course, sections=self.sections, approve=True)
+        lessons = list(curriculum.sections.get().lessons.all())
+        Lesson.objects.filter(pk=lessons[0].pk).update(status=Lesson.Status.READY)
+        Lesson.objects.filter(pk=lessons[1].pk).update(status=Lesson.Status.APPROVED)
+        self.client.force_login(self.owner)
+
+        response = self.client.get(reverse('courses:list'))
+        listed_course = response.context['courses'][0]
+
+        self.assertEqual(listed_course.approved_lesson_total, 2)
+        self.assertEqual(listed_course.completed_lesson_count, 2)
+        self.assertEqual(listed_course.active_duration_minutes, 60)
+        self.assertContains(response, 'Active: 60 minutes')
+        self.assertContains(response, '2 of 2 lessons ready')
+        self.assertContains(response, 'Last updated')
+
+    def test_course_list_handles_empty_and_proposed_curricula(self):
+        proposed = create_curriculum_revision(self.course, sections=self.sections)
+        empty_course = create_draft_course(self.owner, title='Empty course', topic='Awaiting a plan.')
+        self.client.force_login(self.owner)
+
+        response = self.client.get(reverse('courses:list'))
+        listed_courses = {course.pk: course for course in response.context['courses']}
+
+        self.assertEqual(listed_courses[self.course.pk].approved_lesson_total, 0)
+        self.assertEqual(listed_courses[self.course.pk].completed_lesson_count, 0)
+        self.assertEqual(listed_courses[self.course.pk].proposed_duration_minutes, 60)
+        self.assertEqual(listed_courses[empty_course.pk].curriculum_version_count, 0)
+        self.assertIsNone(listed_courses[empty_course.pk].proposed_duration_minutes)
+        self.assertContains(response, 'Proposed: 60 minutes')
+        self.assertContains(response, 'Available after curriculum approval')
+        self.assertContains(response, 'Empty course')
+        self.assertEqual(proposed.status, CurriculumVersion.Status.DRAFT)
+
+    def test_course_list_annotations_do_not_add_queries_per_course(self):
+        for number in range(3):
+            course = create_draft_course(
+                self.owner,
+                title=f'Additional course {number}',
+                topic='A concise topic.',
+            )
+            create_curriculum_revision(course, sections=self.sections, approve=True)
+        request = RequestFactory().get(reverse('courses:list'))
+        request.user = self.owner
+        view = CourseListView()
+        view.request = request
+
+        with self.assertNumQueries(1):
+            courses = list(view.get_queryset())
+
+        self.assertEqual(len(courses), 4)
 
     @patch('courses.views.enqueue_curriculum_job')
     def test_course_creation_queues_curriculum_through_boundary(self, enqueue):
@@ -76,7 +137,18 @@ class CourseAuthoringWorkflowTests(TestCase):
         ]
         response = self.client.post(
             reverse('courses:manual-curriculum', args=[self.course.public_id]),
-            {'sections_json': json.dumps(payload), 'change_summary': 'Manually reordered'},
+            {
+                'sections_json': json.dumps(payload),
+                'change_summary': 'Manually reordered',
+                'project_json': json.dumps(
+                    {
+                        'title': 'Build a learning journal',
+                        'description': 'Create a small journal application.',
+                        'deliverables': ['Repository', 'Readme'],
+                        'evaluation_criteria': ['Runs locally'],
+                    }
+                ),
+            },
         )
 
         curriculum = CurriculumVersion.objects.get(course=self.course)
@@ -88,6 +160,27 @@ class CourseAuthoringWorkflowTests(TestCase):
         section = curriculum.sections.get()
         self.assertEqual(section.title, 'Second section first')
         self.assertEqual(list(section.lessons.values_list('title', flat=True)), ['Lesson B', 'Lesson A'])
+        self.assertEqual(curriculum.course_project.title, 'Build a learning journal')
+        self.assertEqual(curriculum.course_project.deliverables, ['Repository', 'Readme'])
+
+    def test_manual_revision_prepopulates_the_latest_project(self):
+        create_curriculum_revision(
+            self.course,
+            sections=self.sections,
+            project=ProjectSpec(
+                title='Build a blog',
+                description='Create a small blog application.',
+                deliverables=['Repository'],
+                evaluation_criteria=['Working posts'],
+            ),
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.get(reverse('courses:manual-curriculum', args=[self.course.public_id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Build a blog')
+        self.assertContains(response, 'Working posts')
 
     def test_owner_can_approve_and_request_revision(self):
         curriculum = create_curriculum_revision(self.course, sections=self.sections)
@@ -119,6 +212,56 @@ class CourseAuthoringWorkflowTests(TestCase):
         self.assertEqual(
             self.client.get(
                 reverse('courses:curriculum-review', args=[self.course.public_id, curriculum.public_id])
+            ).status_code,
+            404,
+        )
+
+    def test_owner_can_compare_versions_and_restore_a_historical_version(self):
+        first = create_curriculum_revision(
+            self.course,
+            sections=self.sections,
+            course_description='Original plan',
+            approve=True,
+        )
+        second = create_curriculum_revision(
+            self.course,
+            sections=[
+                SectionSpec(
+                    title='Changed foundations',
+                    duration_minutes=60,
+                    lessons=[LessonSpec(title='Changed lesson', duration_minutes=60)],
+                )
+            ],
+            course_description='Changed plan',
+            approve=True,
+        )
+        self.client.force_login(self.owner)
+        compare_url = reverse('courses:curriculum-compare', args=[self.course.public_id])
+
+        response = self.client.get(
+            compare_url, {'left': first.public_id, 'right': second.public_id}
+        )
+        restore_response = self.client.post(
+            reverse('courses:curriculum-restore', args=[self.course.public_id, first.public_id])
+        )
+
+        restored = CurriculumVersion.objects.get(version_number=3)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Original plan')
+        self.assertContains(response, 'Changed plan')
+        self.assertRedirects(
+            restore_response,
+            reverse('courses:curriculum-review', args=[self.course.public_id, restored.public_id]),
+        )
+        self.assertEqual(restored.status, CurriculumVersion.Status.DRAFT)
+        first.refresh_from_db()
+        self.assertEqual(first.status, CurriculumVersion.Status.SUPERSEDED)
+
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.get(compare_url).status_code, 404)
+        self.assertEqual(
+            self.client.post(
+                reverse('courses:curriculum-restore', args=[self.course.public_id, first.public_id])
             ).status_code,
             404,
         )

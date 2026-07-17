@@ -1,0 +1,14 @@
+<article
+    id="export-job-status-{{ job.public_id }}"
+    class="job-status"
+    {% if job.status == 'queued' or job.status == 'running' %}{% if status_url %}hx-get="{{ status_url }}"{% else %}hx-get="{% url 'exports:job-status' job.public_id %}"{% endif %} hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
+>
+    <div class="job-status-heading"><h3>{{ job.get_export_format_display }} export</h3><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span></div>
+    <progress value="{{ job.progress_current }}" max="{{ job.progress_total }}">{{ job.progress_current }} of {{ job.progress_total }}</progress><p>{{ job.progress_current }} of {{ job.progress_total }} steps complete</p>
+    {% if job.error_message %}<p class="form-errors">{{ job.error_message }}</p>{% endif %}
+    <div class="job-controls">
+        {% if job.status == 'queued' %}<form method="post" action="{% url 'exports:cancel' job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel export</button></form>{% endif %}
+        {% if job.status == 'failed' %}<form method="post" action="{% url 'exports:retry' job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Retry export</button></form>{% endif %}
+        {% if job.status == 'succeeded' %}<a class="button button-secondary" href="{% url 'exports:download' job.public_id %}">Download</a>{% endif %}
+    </div>
+</article>

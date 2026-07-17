@@ -33,6 +33,7 @@ class CourseExportContent:
     topic: str
     description: str
     sections: tuple
+    project: tuple | None = None
 
 
 def enqueue_course_export(*, course_id, requested_by, export_format: str) -> ExportJob:
@@ -55,6 +56,34 @@ def enqueue_course_export(*, course_id, requested_by, export_format: str) -> Exp
 
     run_export_job.delay(str(job.public_id))
     return job
+
+
+def cancel_export_job(job: ExportJob, *, requested_by) -> bool:
+    """Cancel only queued exports, before a worker begins rendering private files."""
+    if job.requested_by_id != requested_by.pk:
+        raise ExportConfigurationError('Only the export requester may cancel this job.')
+    with transaction.atomic():
+        locked_job = ExportJob.objects.select_for_update().get(pk=job.pk)
+        if locked_job.status != ExportJob.Status.QUEUED:
+            return False
+        locked_job.status = ExportJob.Status.CANCELLED
+        locked_job.completed_at = timezone.now()
+        locked_job.error_message = 'Cancelled before rendering began.'
+        locked_job.save(update_fields=('status', 'completed_at', 'error_message'))
+    return True
+
+
+def retry_export_job(job: ExportJob, *, requested_by) -> ExportJob:
+    """Queue a fresh export after a failed job; completed files remain untouched."""
+    if job.requested_by_id != requested_by.pk:
+        raise ExportConfigurationError('Only the export requester may retry this job.')
+    if job.status != ExportJob.Status.FAILED:
+        raise ExportConfigurationError('Only failed exports can be retried.')
+    return enqueue_course_export(
+        course_id=job.course_id,
+        requested_by=requested_by,
+        export_format=job.export_format,
+    )
 
 
 def process_export_job(job_id) -> ExportJob:
@@ -114,7 +143,18 @@ def _load_export_content(job: ExportJob) -> CourseExportContent:
             latest_revision = lesson.revisions.first()
             lessons.append((lesson.title, latest_revision.content_markdown if latest_revision else lesson.outline))
         sections.append((section.title, section.summary, tuple(lessons)))
-    return CourseExportContent(job.course.title, job.course.topic, curriculum.course_description, tuple(sections))
+    project = None
+    if hasattr(curriculum, 'course_project'):
+        course_project = curriculum.course_project
+        project = (
+            course_project.title,
+            course_project.description,
+            tuple(course_project.deliverables),
+            tuple(course_project.evaluation_criteria),
+        )
+    return CourseExportContent(
+        job.course.title, job.course.topic, curriculum.course_description, tuple(sections), project
+    )
 
 
 def _render_export(content: CourseExportContent, export_format: str):
@@ -137,6 +177,13 @@ def _render_markdown(content: CourseExportContent) -> str:
             lines.extend(['', summary])
         for lesson_title, lesson_content in lessons:
             lines.extend(['', f'### {lesson_title}', '', lesson_content or '_Content has not been written yet._'])
+    if content.project:
+        title, description, deliverables, criteria = content.project
+        lines.extend(['', '## Course project', '', f'### {title}', '', description])
+        if deliverables:
+            lines.extend(['', '#### Deliverables', *[f'- {item}' for item in deliverables]])
+        if criteria:
+            lines.extend(['', '#### Evaluation criteria', *[f'- {item}' for item in criteria]])
     return '\n'.join(lines).strip() + '\n'
 
 
@@ -181,6 +228,19 @@ def _render_docx(content: CourseExportContent) -> bytes:
         for lesson_title, lesson_content in lessons:
             document.add_heading(lesson_title, level=2)
             _append_markdown_to_docx(document, lesson_content or 'Content has not been written yet.')
+    if content.project:
+        title, description, deliverables, criteria = content.project
+        document.add_heading('Course project', level=1)
+        document.add_heading(title, level=2)
+        document.add_paragraph(description)
+        if deliverables:
+            document.add_heading('Deliverables', level=3)
+            for item in deliverables:
+                document.add_paragraph(item, style='List Bullet')
+        if criteria:
+            document.add_heading('Evaluation criteria', level=3)
+            for item in criteria:
+                document.add_paragraph(item, style='List Bullet')
     output = io.BytesIO()
     document.save(output)
     return output.getvalue()
@@ -226,6 +286,16 @@ def _render_pdf(content: CourseExportContent) -> bytes:
         for lesson_title, lesson_content in lessons:
             story.append(Paragraph(escape(lesson_title), h2))
             _append_markdown_to_pdf(story, lesson_content or 'Content has not been written yet.', body, h1, h2, h3)
+    if content.project:
+        title_text, description, deliverables, criteria = content.project
+        story.append(Paragraph('Course project', h1))
+        story.append(Paragraph(escape(title_text), h2))
+        story.append(Paragraph(escape(description), body))
+        for label, items in (('Deliverables', deliverables), ('Evaluation criteria', criteria)):
+            if items:
+                story.append(Paragraph(label, h3))
+                for item in items:
+                    story.append(Paragraph('&bull; ' + escape(item), body))
     SimpleDocTemplate(output, pagesize=letter, leftMargin=inch, rightMargin=inch, topMargin=inch, bottomMargin=inch).build(story)
     return output.getvalue()
 

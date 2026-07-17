@@ -3,18 +3,26 @@ import json
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
+from generation.models import GenerationJob
 from generation.services import GenerationConfigurationError, enqueue_curriculum_job
 
 from .forms import CourseCreateForm, CurriculumRevisionForm, LessonRevisionForm
-from .models import Course, CurriculumVersion, Lesson
+from .models import Course, CurriculumVersion, Lesson, LessonRevision
 from .rendering import render_safe_markdown
-from .services import approve_curriculum_version, create_curriculum_revision, create_lesson_revision
+from .services import (
+    approve_curriculum_version,
+    create_curriculum_revision,
+    create_lesson_revision,
+    restore_curriculum_version,
+    restore_lesson_revision,
+)
 
 
 class OwnedCourseQuerysetMixin(LoginRequiredMixin):
@@ -30,7 +38,41 @@ class CourseListView(LoginRequiredMixin, ListView):
     context_object_name = 'courses'
 
     def get_queryset(self):
-        return Course.objects.filter(owner=self.request.user).prefetch_related('curriculum_versions')
+        approved_versions = CurriculumVersion.objects.filter(
+            course=OuterRef('pk'),
+            status=CurriculumVersion.Status.APPROVED,
+        )
+        latest_versions = CurriculumVersion.objects.filter(course=OuterRef('pk')).order_by(
+            '-version_number'
+        )
+        return (
+            Course.objects.filter(owner=self.request.user)
+            .annotate(
+                curriculum_version_count=Count('curriculum_versions', distinct=True),
+                approved_lesson_total=Count(
+                    'curriculum_versions__sections__lessons',
+                    filter=Q(curriculum_versions__status=CurriculumVersion.Status.APPROVED),
+                    distinct=True,
+                ),
+                completed_lesson_count=Count(
+                    'curriculum_versions__sections__lessons',
+                    filter=Q(
+                        curriculum_versions__status=CurriculumVersion.Status.APPROVED,
+                        curriculum_versions__sections__lessons__status__in=(
+                            Lesson.Status.READY,
+                            Lesson.Status.APPROVED,
+                        ),
+                    ),
+                    distinct=True,
+                ),
+                active_duration_minutes=Subquery(
+                    approved_versions.values('calculated_duration_minutes')[:1]
+                ),
+                proposed_duration_minutes=Subquery(
+                    latest_versions.values('suggested_duration_minutes')[:1]
+                ),
+            )
+        )
 
 
 class CourseCreateView(LoginRequiredMixin, CreateView):
@@ -61,7 +103,13 @@ class CourseDetailView(OwnedCourseQuerysetMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['curriculum_versions'] = self.object.curriculum_versions.prefetch_related('sections__lessons')
+        context['curriculum_versions'] = self.object.curriculum_versions.prefetch_related(
+            'sections__lessons', 'course_project'
+        )
+        context['generation_jobs'] = self.object.generation_jobs.filter(
+            job_type=GenerationJob.JobType.CURRICULUM
+        )[:5]
+        context['export_jobs'] = self.object.export_jobs.select_related('export_file')[:5]
         return context
 
 
@@ -77,6 +125,7 @@ class CourseWorkspaceView(OwnedCourseQuerysetMixin, TemplateView):
         versions = self.course.curriculum_versions.prefetch_related(
             'sections__lessons__revisions',
             'sections__lessons__generation_jobs',
+            'course_project',
         )
         return versions.filter(status=CurriculumVersion.Status.APPROVED).first() or versions.first()
 
@@ -149,6 +198,50 @@ class LessonRevisionCreateView(OwnedCourseQuerysetMixin, View):
         return redirect(f'{reverse("courses:workspace", args=[course.public_id])}?lesson={lesson.public_id}')
 
 
+class LessonRevisionDetailView(OwnedCourseQuerysetMixin, TemplateView):
+    template_name = 'courses/lesson_revision_detail.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.course = self.get_course()
+        self.lesson = get_object_or_404(
+            Lesson.objects.select_related('section__curriculum_version__course'),
+            public_id=kwargs['lesson_id'],
+            section__curriculum_version__course=self.course,
+        )
+        self.revision = get_object_or_404(self.lesson.revisions, public_id=kwargs['revision_id'])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            {
+                'course': self.course,
+                'lesson': self.lesson,
+                'revision': self.revision,
+                'rendered_content': render_safe_markdown(self.revision.content_markdown),
+            }
+        )
+        return context
+
+
+class LessonRevisionRestoreView(OwnedCourseQuerysetMixin, View):
+    def post(self, request, course_id, lesson_id, revision_id):
+        course = self.get_course()
+        lesson = get_object_or_404(
+            Lesson.objects.select_related('section__curriculum_version__course'),
+            public_id=lesson_id,
+            section__curriculum_version__course=course,
+        )
+        source = get_object_or_404(LessonRevision.objects.filter(lesson=lesson), public_id=revision_id)
+        try:
+            restored = restore_lesson_revision(source, restored_by=request.user)
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+        else:
+            messages.success(request, f'Created revision {restored.revision_number} from revision {source.revision_number}.')
+        return redirect(f'{reverse("courses:workspace", args=[course.public_id])}?lesson={lesson.public_id}')
+
+
 class CurriculumReviewView(OwnedCourseQuerysetMixin, TemplateView):
     template_name = 'courses/curriculum_review.html'
 
@@ -195,6 +288,70 @@ class CurriculumReviewView(OwnedCourseQuerysetMixin, TemplateView):
         return redirect('courses:curriculum-review', course_id=self.course.public_id, curriculum_id=self.curriculum.public_id)
 
 
+class CurriculumComparisonView(OwnedCourseQuerysetMixin, TemplateView):
+    template_name = 'courses/curriculum_comparison.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        self.course = self.get_course()
+        self.versions = self.course.curriculum_versions.prefetch_related(
+            'sections__lessons', 'course_project'
+        )
+        self.left, self.right = self._selected_versions()
+        return super().dispatch(request, *args, **kwargs)
+
+    def _selected_versions(self):
+        left_id = self.request.GET.get('left')
+        right_id = self.request.GET.get('right')
+        versions = list(self.versions)
+        if len(versions) < 2:
+            raise Http404('At least two curriculum versions are required for comparison.')
+        left = get_object_or_404(self.versions, public_id=left_id) if left_id else versions[0]
+        right = get_object_or_404(self.versions, public_id=right_id) if right_id else versions[1]
+        if left.pk == right.pk:
+            raise Http404('Choose two different curriculum versions.')
+        return left, right
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        left = _curriculum_comparison_payload(self.left)
+        right = _curriculum_comparison_payload(self.right)
+        context.update(
+            {
+                'course': self.course,
+                'versions': self.versions,
+                'left': left,
+                'right': right,
+                'planning_rows': [
+                    _comparison_row('Summary', left['description'], right['description']),
+                    _comparison_row('Proposed duration', left['suggested_duration'], right['suggested_duration']),
+                    _comparison_row('Calculated duration', left['calculated_duration'], right['calculated_duration']),
+                    _comparison_row('Estimate explanation', left['estimate'], right['estimate']),
+                    _comparison_row('Overall outcomes', left['outcomes'], right['outcomes']),
+                    _comparison_row('Prerequisites', left['prerequisites'], right['prerequisites']),
+                    _comparison_row('Course project', left['project'], right['project']),
+                ],
+                'section_rows': _comparison_section_rows(left['sections'], right['sections']),
+            }
+        )
+        return context
+
+
+class CurriculumRestoreView(OwnedCourseQuerysetMixin, View):
+    def post(self, request, course_id, curriculum_id):
+        course = self.get_course()
+        source = get_object_or_404(
+            course.curriculum_versions.prefetch_related('sections__lessons', 'course_project'),
+            public_id=curriculum_id,
+        )
+        try:
+            restored = restore_curriculum_version(source, restored_by=request.user)
+        except ValidationError as exc:
+            messages.error(request, '; '.join(exc.messages))
+            return redirect('courses:curriculum-review', course_id=course.public_id, curriculum_id=source.public_id)
+        messages.success(request, f'Created draft curriculum version {restored.version_number} from version {source.version_number}.')
+        return redirect('courses:curriculum-review', course_id=course.public_id, curriculum_id=restored.public_id)
+
+
 class ManualCurriculumRevisionView(OwnedCourseQuerysetMixin, TemplateView):
     template_name = 'courses/manual_curriculum_revision.html'
 
@@ -203,16 +360,30 @@ class ManualCurriculumRevisionView(OwnedCourseQuerysetMixin, TemplateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_initial(self):
-        latest = self.course.curriculum_versions.prefetch_related('sections__lessons').first()
+        latest = self.course.curriculum_versions.prefetch_related(
+            'sections__lessons', 'course_project'
+        ).first()
         initial = {'suggested_duration_minutes': self.course.desired_duration_minutes}
         if latest:
             initial.update(
                 {
                     'course_description': latest.course_description,
+                    'overall_learning_outcomes_text': '\n'.join(latest.overall_learning_outcomes),
+                    'prerequisites': latest.prerequisites,
+                    'duration_estimate_explanation': latest.duration_estimate_explanation,
+                    'suggested_duration_minutes': latest.suggested_duration_minutes,
                     'sections_json': json.dumps(_curriculum_payload(latest), indent=2),
                 }
             )
+            if hasattr(latest, 'course_project'):
+                initial['project_json'] = json.dumps(_project_payload(latest.course_project), indent=2)
         else:
+            initial.update(
+                {
+                    'overall_learning_outcomes_text': '\n'.join(self.course.learning_outcomes),
+                    'prerequisites': self.course.prerequisites,
+                }
+            )
             initial['sections_json'] = json.dumps(_example_payload(), indent=2)
         return initial
 
@@ -234,8 +405,12 @@ class ManualCurriculumRevisionView(OwnedCourseQuerysetMixin, TemplateView):
                     created_by=request.user,
                     sections=form.sections,
                     course_description=form.cleaned_data['course_description'],
+                    overall_learning_outcomes=form.cleaned_data['overall_learning_outcomes_text'],
+                    prerequisites=form.cleaned_data['prerequisites'],
                     suggested_duration_minutes=form.cleaned_data['suggested_duration_minutes'],
+                    duration_estimate_explanation=form.cleaned_data['duration_estimate_explanation'],
                     change_summary=form.cleaned_data['change_summary'],
+                    project=form.project,
                 )
             except ValidationError as exc:
                 form.add_error(None, exc)
@@ -287,3 +462,82 @@ def _example_payload():
             ],
         }
     ]
+
+
+def _project_payload(project):
+    return {
+        'title': project.title,
+        'description': project.description,
+        'deliverables': project.deliverables,
+        'evaluation_criteria': project.evaluation_criteria,
+    }
+
+
+def _curriculum_comparison_payload(curriculum):
+    project = None
+    if hasattr(curriculum, 'course_project'):
+        project = _project_payload(curriculum.course_project)
+    return {
+        'version': curriculum,
+        'description': curriculum.course_description,
+        'suggested_duration': curriculum.suggested_duration_minutes,
+        'calculated_duration': curriculum.calculated_duration_minutes,
+        'estimate': curriculum.duration_estimate_explanation,
+        'outcomes': list(curriculum.overall_learning_outcomes),
+        'prerequisites': curriculum.prerequisites,
+        'project': project,
+        'sections': [
+            {
+                'position': section.position,
+                'title': section.title,
+                'summary': section.summary,
+                'duration': section.duration_minutes,
+                'outcomes': list(section.learning_outcomes),
+                'lessons': [
+                    {
+                        'position': lesson.position,
+                        'title': lesson.title,
+                        'duration': lesson.duration_minutes,
+                        'objectives': list(lesson.objectives),
+                        'outline': lesson.outline,
+                    }
+                    for lesson in section.lessons.all()
+                ],
+            }
+            for section in curriculum.sections.all()
+        ],
+    }
+
+
+def _comparison_row(label, left, right):
+    return {'label': label, 'left': left, 'right': right, 'different': left != right}
+
+
+def _comparison_section_rows(left_sections, right_sections):
+    left_by_position = {section['position']: section for section in left_sections}
+    right_by_position = {section['position']: section for section in right_sections}
+    rows = []
+    for position in sorted(set(left_by_position) | set(right_by_position)):
+        left = left_by_position.get(position)
+        right = right_by_position.get(position)
+        lesson_positions = set()
+        if left:
+            lesson_positions.update(lesson['position'] for lesson in left['lessons'])
+        if right:
+            lesson_positions.update(lesson['position'] for lesson in right['lessons'])
+        lessons = []
+        left_lessons = {lesson['position']: lesson for lesson in left['lessons']} if left else {}
+        right_lessons = {lesson['position']: lesson for lesson in right['lessons']} if right else {}
+        for lesson_position in sorted(lesson_positions):
+            left_lesson = left_lessons.get(lesson_position)
+            right_lesson = right_lessons.get(lesson_position)
+            lessons.append(
+                {
+                    'position': lesson_position,
+                    'left': left_lesson,
+                    'right': right_lesson,
+                    'different': left_lesson != right_lesson,
+                }
+            )
+        rows.append({'position': position, 'left': left, 'right': right, 'lessons': lessons, 'different': left != right})
+    return rows

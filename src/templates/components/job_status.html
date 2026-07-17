@@ -6,7 +6,7 @@ Reusable job-status component. Pass a GenerationJob as `job`; optionally pass
     <article
         id="job-status-{{ job.public_id }}"
         class="job-status"
-        {% if status_url %}hx-get="{{ status_url }}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
+        {% if job.status == 'queued' or job.status == 'running' or job.status == 'retrying' %}{% if status_url %}hx-get="{{ status_url }}"{% else %}hx-get="{% url 'generation:job-status' job.public_id %}"{% endif %} hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
     >
         <div class="job-status-heading">
             <h3>{{ job.get_job_type_display }} generation</h3>

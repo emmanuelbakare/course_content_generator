@@ -12,8 +12,10 @@
         <div class="hero-actions">
             <span class="status status-{{ curriculum.status }}">{{ curriculum.get_status_display }}</span>
             <a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create revised copy</a>
+            <form method="post" action="{% url 'courses:curriculum-restore' course.public_id curriculum.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Restore as new draft</button></form>
         </div>
     </section>
+    <section class="panel"><h2>Planning details</h2><dl class="metadata-list"><div><dt>Requested duration</dt><dd>{% if course.desired_duration_minutes %}{{ course.desired_duration_minutes }} minutes{% else %}Not specified{% endif %}</dd></div><div><dt>Proposed duration</dt><dd>{{ curriculum.suggested_duration_minutes|default:'Not specified' }}{% if curriculum.suggested_duration_minutes %} minutes{% endif %}</dd></div><div><dt>Calculated lesson total</dt><dd>{{ curriculum.calculated_duration_minutes|default:'Not available' }}{% if curriculum.calculated_duration_minutes %} minutes{% endif %}</dd></div></dl><h3>Duration estimate</h3><p>{{ curriculum.duration_estimate_explanation|default:'No estimate explanation was provided.' }}</p><h3>Overall learning outcomes</h3><ul>{% for outcome in curriculum.overall_learning_outcomes %}<li>{{ outcome }}</li>{% empty %}<li>No overall outcomes were provided.</li>{% endfor %}</ul><h3>Prerequisites</h3><p>{{ curriculum.prerequisites|default:'No prerequisites were provided.' }}</p>{% if curriculum.course_project %}<h3>Course project: {{ curriculum.course_project.title }}</h3><p>{{ curriculum.course_project.description }}</p>{% if curriculum.course_project.deliverables %}<h4>Deliverables</h4><ul>{% for item in curriculum.course_project.deliverables %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}{% endif %}</section>
     <section class="panel">
         <h2>Curriculum outline</h2>
         {% for section in curriculum.sections.all %}

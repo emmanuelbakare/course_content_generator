@@ -4,7 +4,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from .models import Course
-from .services import LessonSpec, SectionSpec
+from .services import LessonSpec, ProjectSpec, SectionSpec
 
 
 class CourseCreateForm(forms.ModelForm):
@@ -42,7 +42,22 @@ class CourseCreateForm(forms.ModelForm):
 
 class CurriculumRevisionForm(forms.Form):
     course_description = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+    overall_learning_outcomes_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 4}),
+        help_text='Enter one overall curriculum outcome per line.',
+    )
+    prerequisites = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
     suggested_duration_minutes = forms.IntegerField(required=False, min_value=1)
+    duration_estimate_explanation = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 3}))
+    project_json = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'rows': 12, 'spellcheck': 'false'}),
+        help_text=(
+            'Optional JSON object with title, description, deliverables, and evaluation_criteria. '
+            'Saving creates a project on the new curriculum version only.'
+        ),
+    )
     change_summary = forms.CharField(required=False, max_length=500)
     sections_json = forms.CharField(
         widget=forms.Textarea(attrs={'rows': 24, 'spellcheck': 'false'}),
@@ -93,6 +108,39 @@ class CurriculumRevisionForm(forms.Form):
     @property
     def sections(self):
         return self.cleaned_data['sections_json']
+
+    def clean_overall_learning_outcomes_text(self):
+        return [
+            line.strip()
+            for line in self.cleaned_data['overall_learning_outcomes_text'].splitlines()
+            if line.strip()
+        ]
+
+    def clean_project_json(self):
+        value = self.cleaned_data['project_json'].strip()
+        if not value:
+            return None
+        try:
+            project = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValidationError(f'Enter valid project JSON: {exc.msg}.') from exc
+        if not isinstance(project, dict):
+            raise ValidationError('Project JSON must be an object.')
+        try:
+            return ProjectSpec(
+                title=_required_text(project, 'title', 'Project'),
+                description=_required_text(project, 'description', 'Project'),
+                deliverables=_string_list(project.get('deliverables', []), 'deliverables'),
+                evaluation_criteria=_string_list(
+                    project.get('evaluation_criteria', []), 'evaluation_criteria'
+                ),
+            )
+        except (TypeError, KeyError, ValueError) as exc:
+            raise ValidationError(str(exc)) from exc
+
+    @property
+    def project(self):
+        return self.cleaned_data['project_json']
 
 
 def _required_text(value, key, label):
