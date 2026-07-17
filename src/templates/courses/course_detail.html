@@ -11,6 +11,21 @@
         </div>
         <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:workspace' course.public_id %}">Open workspace</a><a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a></div>
     </section>
+    {% if course.status == 'approved' %}
+        <section class="panel">
+            <h2>Export approved content</h2>
+            <form method="post" action="{% url 'exports:create' course.public_id %}" class="inline-form">
+                {% csrf_token %}
+                <label for="export-format">Format</label>
+                <select id="export-format" name="export_format">
+                    <option value="markdown">Markdown</option>
+                    <option value="docx">Word document</option>
+                    <option value="pdf">PDF</option>
+                </select>
+                <button class="button button-primary" type="submit">Queue export</button>
+            </form>
+        </section>
+    {% endif %}
     <section class="panel">
         <h2>Curriculum versions</h2>
         <div class="version-list">
