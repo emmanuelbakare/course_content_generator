@@ -74,3 +74,12 @@ celery -A config worker --loglevel=info
 ```
 
 Terminate TLS at a trusted reverse proxy and pass `X-Forwarded-Proto: https` only from that proxy. Private exports are served through authenticated Django download views; do not configure the web server to expose `MEDIA_ROOT`. Application and Celery logs are JSON and redact fields such as API keys, tokens, passwords, and authorization headers. Store all secrets in the platform secret manager, not in the repository or Django database.
+
+### Remaining production configuration
+
+- Provision PostgreSQL and Redis with TLS/authentication appropriate to the hosting platform; set the `DATABASE_URL`, `CELERY_BROKER_URL`, and `CELERY_RESULT_BACKEND` values before release.
+- Configure the application hostnames, HTTPS proxy headers, secure cookies, HSTS policy, and CSRF origins exactly as shown above. Enable HSTS preload only when the domain and all included subdomains are permanently HTTPS-only.
+- Run `collectstatic` at each release. WhiteNoise serves versioned static assets from the web process; it does **not** publish private export files.
+- The current private export storage is the local `MEDIA_ROOT`. A multi-instance or ephemeral deployment must provide a shared persistent volume or replace the storage backend with a private object store before enabling exports.
+- Create provider/model records through the administrator settings page, then set the corresponding provider key environment variable (for example `OPENAI_API_KEY`) in the platform secret manager. Keys are intentionally never entered into or returned from Django.
+- Run one Celery worker deployment for the same code release and monitor its connection to Redis. Queue work is not processed while the worker is unavailable.
