@@ -83,6 +83,22 @@ class CourseWorkspaceTests(TestCase):
         self.assertContains(response, 'Revision 1')
         self.assertContains(response, 'Generate selected lessons')
 
+    def test_workspace_includes_local_mermaid_bundle_and_safe_fallback(self):
+        create_lesson_revision(
+            self.lesson,
+            created_by=self.owner,
+            content_markdown='```mermaid\nflowchart TD\n  Start --> Finish\n```',
+            change_summary='Added diagram',
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.get(f'{self.workspace_url}?lesson={self.lesson.public_id}')
+
+        self.assertContains(response, 'vendor/mermaid/mermaid-10.9.1.min.js')
+        self.assertContains(response, 'class="mermaid-diagram"', html=False)
+        self.assertContains(response, 'class="mermaid-fallback"', html=False)
+        self.assertContains(response, 'flowchart TD')
+
     def test_workspace_edit_creates_a_new_lesson_revision(self):
         self.client.force_login(self.owner)
         response = self.client.post(

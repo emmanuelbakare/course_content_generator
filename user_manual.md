@@ -68,6 +68,8 @@ The review page presents the requested duration, AI-proposed duration, calculate
 
 Approval does not destroy previous versions. Review the structure, durations, outcomes, learner load, and overall project before approving.
 
+Every curriculum approval page, lesson workspace, and export area includes the same optional **Instructor review checklist**. Before approving or exporting, verify factual accuracy, learner suitability, accessibility, licensing/copyright, privacy, code correctness, and assessment quality. AI output is a draft for your review; the checklist is advisory and never blocks editing or generation.
+
 ### Compare or restore a previous curriculum
 
 When a course has at least two curriculum versions, select **Compare versions** from the course overview. Choose two versions to see their planning details, sections, lessons, and project side by side; changed rows are highlighted.
@@ -127,6 +129,20 @@ To reorder material, move objects within the arrays. To add or remove a section 
 5. For a failed or needs-review job, use **Retry**. For an active job, select **Cancel generation**. The course overview also shows curriculum planning jobs with live status, cancellation, and retry controls.
 
 Generated lesson content is saved as an immutable revision. Each accepted AI response must provide objectives, expected duration, preparation and materials, a timed teaching flow, concepts, examples, activities, assessment with expected answers or a rubric, common misconceptions, and an optional project connection. The application turns that structured plan into editable Markdown and retains the structured lesson-plan data with the revision. If the model omits any required element, it is asked for a complete replacement up to the configured continuation limit; then the job is marked **Needs review**. The workspace renders Markdown safely; scripts and unsafe links are removed before display.
+
+### Add a Mermaid diagram
+
+Use an explicitly labelled Mermaid fenced block in lesson Markdown. The diagram source is shown as readable code until the locally bundled renderer succeeds, so it remains usable when JavaScript is unavailable or a diagram contains an error.
+
+```text
+```mermaid
+flowchart TD
+  Start --> Activity
+  Activity --> Assessment
+```
+```
+
+Only these fenced blocks are eligible for diagram rendering. Do not paste script tags or arbitrary HTML; the workspace removes unsafe HTML and unsafe links.
 
 ### Edit a lesson yourself
 

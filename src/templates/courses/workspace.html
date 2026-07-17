@@ -32,6 +32,7 @@
                         <form method="post" action="{% url 'generation:lesson-generate' selected_lesson.public_id %}">{% csrf_token %}<button class="button button-primary" type="submit">Generate lesson</button></form>
                         <details><summary class="button button-secondary">Revise with AI</summary><form method="post" action="{% url 'generation:lesson-generate' selected_lesson.public_id %}" class="stacked-form small-form">{% csrf_token %}<label for="revision-instruction">Revision instructions</label><textarea id="revision-instruction" name="revision_instruction" rows="3" required></textarea><button class="button button-secondary" type="submit">Queue revision</button></form></details>
                     </div>
+                    {% include 'components/instructor_review_checklist.html' %}
                     {% if active_job %}{% include 'components/job_status.html' with job=active_job status_url=active_job_status_url %}{% endif %}
                     {% for job in terminal_lesson_jobs %}<div class="job-controls"><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span><form method="post" action="{% url 'generation:lesson-retry' job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Retry</button></form></div>{% endfor %}
                     {% if active_job %}<form method="post" action="{% url 'generation:lesson-cancel' active_job.public_id %}">{% csrf_token %}<button class="button button-secondary" type="submit">Cancel generation</button></form>{% endif %}

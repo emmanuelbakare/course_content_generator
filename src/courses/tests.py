@@ -5,6 +5,7 @@ from django.test import TestCase
 
 from .factories import CourseFactory
 from .models import Course, CourseSection, CurriculumVersion
+from .rendering import render_safe_markdown
 from .services import (
     LessonSpec,
     ProjectSpec,
@@ -43,6 +44,35 @@ class CourseModelTests(TestCase):
                 duration_minutes=30,
                 position=1,
             )
+
+
+class MarkdownRenderingTests(TestCase):
+    def test_explicit_mermaid_fence_has_an_escaped_source_fallback(self):
+        rendered = str(
+            render_safe_markdown(
+                '```mermaid\nflowchart TD\n  Start --> Finish\n```'
+            )
+        )
+
+        self.assertIn('class="mermaid-diagram"', rendered)
+        self.assertIn('class="mermaid-fallback"', rendered)
+        self.assertIn('flowchart TD', rendered)
+        self.assertNotIn('<script', rendered)
+
+    def test_unsafe_html_links_and_raw_mermaid_markup_remain_blocked(self):
+        rendered = str(
+            render_safe_markdown(
+                '<script>alert(1)</script>\n'
+                '[Bad link](javascript:alert(1))\n'
+                '<div class="mermaid-diagram" data-mermaid-source="flowchart TD">forged</div>\n'
+                '```javascript\nalert(2)\n```'
+            )
+        )
+
+        self.assertNotIn('<script', rendered)
+        self.assertNotIn('javascript:', rendered)
+        self.assertNotIn('class="mermaid-diagram"', rendered)
+        self.assertIn('alert(2)', rendered)
 
 
 class CourseServiceTests(TestCase):

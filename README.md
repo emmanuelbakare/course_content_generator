@@ -17,6 +17,12 @@ python manage.py runserver
 
 Open http://127.0.0.1:8000/ in a browser.
 
+## Mermaid lesson diagrams
+
+Lesson Markdown supports only explicitly labelled `mermaid` fenced blocks. The renderer turns those blocks into escaped source fallbacks and the browser renders them with the pinned local `src/static/vendor/mermaid/mermaid-10.9.1.min.js` bundle. Mermaid is initialized with `securityLevel: 'strict'`; raw Markdown HTML cannot create a Mermaid placeholder, and source remains visible if JavaScript is unavailable or rendering fails.
+
+The vendored Mermaid 10.9.1 bundle SHA-256 is `61B335A46DF05A7CE1C98378F60E5F3E77A7FB608A1056997E8A649304A936D6`. Update the version, filename, hash, and the bootstrap integration together when upgrading this dependency.
+
 ## Background worker
 
 The application is wired for Celery and Redis. Start Redis, then use a second terminal from the repository root:

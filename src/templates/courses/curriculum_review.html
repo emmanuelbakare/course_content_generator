@@ -31,6 +31,7 @@
         {% endfor %}
     </section>
     <section class="action-grid">
+        {% include 'components/instructor_review_checklist.html' %}
         {% if curriculum.status != 'approved' %}
             <form method="post" class="panel compact-panel">
                 {% csrf_token %}<input type="hidden" name="action" value="approve">

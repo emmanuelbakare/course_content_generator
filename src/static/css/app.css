@@ -109,6 +109,12 @@ progress { width: 100%; margin-top: 1rem; accent-color: var(--brand); }
 .small-form { width: min(100%, 30rem); padding-top: .75rem; }
 .lesson-content { margin-top: 1.5rem; line-height: 1.7; }
 .lesson-content pre { overflow-x: auto; padding: 1rem; border-radius: .5rem; background: #17212b; color: #f8fafc; }
+.mermaid-diagram { margin: 1rem 0; }
+.mermaid-fallback { overflow-x: auto; }
+.mermaid-rendered svg { max-width: 100%; height: auto; }
+.review-checklist { margin: 1rem 0; padding: 1rem; border-left: 4px solid var(--brand); background: var(--canvas); }
+.review-checklist h2 { margin-top: 0; font-size: 1.05rem; }
+.review-checklist p { margin-bottom: .5rem; }
 .lesson-content table { width: 100%; border-collapse: collapse; }
 .lesson-content th, .lesson-content td { padding: .5rem; border: 1px solid var(--line); text-align: left; }
 .editor-panel, .revision-history { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }

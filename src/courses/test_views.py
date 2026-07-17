@@ -204,6 +204,20 @@ class CourseAuthoringWorkflowTests(TestCase):
         self.assertRedirects(response, review_url)
         enqueue.assert_called_once_with(self.course.pk, revision_instruction='Make it more advanced.')
 
+    def test_instructor_review_checklist_is_reused_across_review_workspace_and_export(self):
+        curriculum = create_curriculum_revision(self.course, sections=self.sections, approve=True)
+        self.client.force_login(self.owner)
+
+        for url in (
+            reverse('courses:curriculum-review', args=[self.course.public_id, curriculum.public_id]),
+            reverse('courses:workspace', args=[self.course.public_id]),
+            reverse('courses:detail', args=[self.course.public_id]),
+        ):
+            response = self.client.get(url)
+            self.assertContains(response, 'Instructor review checklist')
+            self.assertContains(response, 'Verify factual accuracy and code correctness.')
+            self.assertContains(response, 'AI-generated content requires your professional review.')
+
     def test_other_users_cannot_view_or_edit_a_course(self):
         curriculum = create_curriculum_revision(self.course, sections=self.sections)
         self.client.force_login(self.other_user)

@@ -14,6 +14,7 @@
     {% if course.status == 'approved' %}
         <section class="panel">
             <h2>Export approved content</h2>
+            {% include 'components/instructor_review_checklist.html' %}
             <form method="post" action="{% url 'exports:create' course.public_id %}" class="inline-form">
                 {% csrf_token %}
                 <label for="export-format">Format</label>
