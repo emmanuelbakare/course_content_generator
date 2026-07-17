@@ -3,7 +3,6 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from docx import Document

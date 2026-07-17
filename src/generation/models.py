@@ -9,7 +9,6 @@ from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
-
 ENVIRONMENT_VARIABLE_PATTERN = re.compile(r'^[A-Z_][A-Z0-9_]*$')
 
 

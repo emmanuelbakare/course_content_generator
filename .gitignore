@@ -36,6 +36,7 @@ celerybeat.pid
 # Generated files
 /exports/
 tmp/
+src/.tmp/
 
 # IDE and operating-system files
 .vscode/

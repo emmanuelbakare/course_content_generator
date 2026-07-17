@@ -4,7 +4,7 @@ pytest-cov
 factory-boy
 Faker
 ruff
-mypy
+mypy>=1.13,<2.0
 django-stubs
 pre-commit
 coverage

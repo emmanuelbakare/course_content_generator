@@ -1,0 +1,51 @@
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+testpaths = ["src"]
+addopts = "--strict-markers --disable-warnings"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = ["*/migrations/*", "*/tests.py", "*/test_*.py", "*/factories.py", "*/manage.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 70
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src"]
+extend-exclude = ["src/.tmp"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B904"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+mypy_path = "src"
+exclude = ["(^|/)migrations/"]
+plugins = ["mypy_django_plugin.main"]
+check_untyped_defs = true
+disallow_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = ["celery.*", "factory.*", "reportlab.*", "pypdf.*", "docx.*"]
+ignore_missing_imports = true
+
+# The application domain is being adopted incrementally; configuration and new
+# shared infrastructure remain type-checked while legacy Django modules gain
+# annotations in focused follow-up work.
+[[tool.mypy.overrides]]
+module = ["accounts.*", "courses.*", "exports.*", "generation.*"]
+ignore_errors = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings"

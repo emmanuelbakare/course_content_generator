@@ -4,8 +4,14 @@ from django.db import IntegrityError
 from django.test import TestCase
 
 from .factories import CourseFactory
-from .models import Course, CourseSection, CurriculumVersion, Lesson
-from .services import LessonSpec, ProjectSpec, SectionSpec, create_curriculum_revision, create_draft_course
+from .models import Course, CourseSection, CurriculumVersion
+from .services import (
+    LessonSpec,
+    ProjectSpec,
+    SectionSpec,
+    create_curriculum_revision,
+    create_draft_course,
+)
 
 
 class CourseModelTests(TestCase):

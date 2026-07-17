@@ -5,7 +5,12 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 
-from courses.services import LessonSpec, SectionSpec, create_curriculum_revision, create_draft_course
+from courses.services import (
+    LessonSpec,
+    SectionSpec,
+    create_curriculum_revision,
+    create_draft_course,
+)
 
 from .adapters import GenerationResponse
 from .models import GenerationJob, GenerationSettings, LLMModel, LLMProvider

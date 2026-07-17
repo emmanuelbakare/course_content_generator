@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements/base.txt -r requirements/development.txt
+      - name: Check migrations
+        working-directory: src
+        run: python manage.py makemigrations --check --dry-run
+      - name: Lint
+        run: ruff check src
+      - name: Type check
+        run: mypy src
+      - name: Test
+        working-directory: src
+        run: pytest --cov --cov-report=term-missing
+      - name: Django deployment check
+        working-directory: src
+        env:
+          DJANGO_DEBUG: 'False'
+          DJANGO_SECRET_KEY: ci-deployment-check-key-that-is-long-enough-for-security-validation
+          DJANGO_ALLOWED_HOSTS: ci.example.test
+          DJANGO_CSRF_TRUSTED_ORIGINS: https://ci.example.test
+          DJANGO_SECURE_SSL_REDIRECT: 'True'
+          DJANGO_SESSION_COOKIE_SECURE: 'True'
+          DJANGO_CSRF_COOKIE_SECURE: 'True'
+          DJANGO_USE_X_FORWARDED_PROTO: 'True'
+          DJANGO_SECURE_HSTS_SECONDS: '31536000'
+          DJANGO_SECURE_HSTS_PRELOAD: 'True'
+          CELERY_BROKER_URL: redis://localhost:6379/0
+          CELERY_RESULT_BACKEND: redis://localhost:6379/1
+        run: python manage.py check --deploy

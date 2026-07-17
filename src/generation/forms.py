@@ -1,8 +1,6 @@
 from django import forms
-from django.core.exceptions import ValidationError
 
 from .models import GenerationSettings, LLMModel, LLMProvider
-
 
 PROVIDER_KEY_ENVIRONMENT_VARIABLES = {
     LLMProvider.AdapterType.OPENAI: 'OPENAI_API_KEY',

@@ -1,7 +1,7 @@
 """Service-layer APIs for constructing course and curriculum snapshots."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction

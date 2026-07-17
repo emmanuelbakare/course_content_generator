@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -14,6 +15,30 @@ load_dotenv(PROJECT_ROOT / ".env")
 def env_bool(name: str, default: bool = False) -> bool:
     """Read a conventional boolean environment variable."""
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name: str, default: int) -> int:
+    """Read a positive integer environment setting with a safe default."""
+    return int(os.getenv(name, str(default)))
+
+
+def database_config():
+    """Use SQLite locally, or a standard PostgreSQL DATABASE_URL in deployment."""
+    database_url = os.getenv('DATABASE_URL', '').strip()
+    if not database_url:
+        return {'ENGINE': 'django.db.backends.sqlite3', 'NAME': BASE_DIR / 'db.sqlite3'}
+    parsed = urlparse(database_url)
+    if parsed.scheme not in {'postgres', 'postgresql'}:
+        raise RuntimeError('DATABASE_URL must use a PostgreSQL URL.')
+    return {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': parsed.path.lstrip('/'),
+        'USER': parsed.username or '',
+        'PASSWORD': parsed.password or '',
+        'HOST': parsed.hostname or '',
+        'PORT': parsed.port or '',
+        'CONN_MAX_AGE': env_int('DJANGO_DB_CONN_MAX_AGE', 60),
+    }
 
 
 DEBUG = env_bool("DJANGO_DEBUG", default=True)
@@ -78,10 +103,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': database_config(),
 }
 
 
@@ -130,6 +152,46 @@ CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:63
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '900'))
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '840'))
+CELERY_TASK_ALWAYS_EAGER = env_bool('CELERY_TASK_ALWAYS_EAGER', default=False)
+CELERY_TASK_EAGER_PROPAGATES = env_bool('CELERY_TASK_EAGER_PROPAGATES', default=False)
+
+# These remain development-friendly by default and become strict when DEBUG is false.
+SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', default=not DEBUG)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if env_bool(
+    'DJANGO_USE_X_FORWARDED_PROTO', default=not DEBUG
+) else None
+SECURE_HSTS_SECONDS = env_int('DJANGO_SECURE_HSTS_SECONDS', 31_536_000 if not DEBUG else 0)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool(
+    'DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS', default=not DEBUG
+)
+SECURE_HSTS_PRELOAD = env_bool('DJANGO_SECURE_HSTS_PRELOAD', default=False)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'
+SESSION_COOKIE_SECURE = env_bool('DJANGO_SESSION_COOKIE_SECURE', default=not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('DJANGO_CSRF_COOKIE_SECURE', default=not DEBUG)
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_HTTPONLY = True
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',')
+    if origin.strip()
+]
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {'redact': {'()': 'config.logging.RedactingFilter'}},
+    'formatters': {'json': {'()': 'config.logging.JsonFormatter'}},
+    'handlers': {
+        'console': {'class': 'logging.StreamHandler', 'filters': ['redact'], 'formatter': 'json'}
+    },
+    'root': {'handlers': ['console'], 'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO')},
+    'loggers': {
+        'django.server': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+        'celery': {'handlers': ['console'], 'level': 'INFO', 'propagate': False},
+    },
+}
 
 LOGIN_URL = 'accounts:login'
 LOGIN_REDIRECT_URL = 'accounts:dashboard'

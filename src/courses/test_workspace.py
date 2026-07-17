@@ -6,7 +6,13 @@ from django.urls import reverse
 
 from generation.models import GenerationJob, LLMModel, LLMProvider
 
-from .services import LessonSpec, SectionSpec, create_curriculum_revision, create_draft_course, create_lesson_revision
+from .services import (
+    LessonSpec,
+    SectionSpec,
+    create_curriculum_revision,
+    create_draft_course,
+    create_lesson_revision,
+)
 
 
 class CourseWorkspaceTests(TestCase):
