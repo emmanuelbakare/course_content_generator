@@ -8,6 +8,7 @@ from .action_views import (
     LessonGenerationView,
     LessonRetryView,
 )
+from .metrics_views import OperationalMetricsView
 from .settings_views import GenerationSettingsView, ProviderModelsPartialView
 from .views import GenerationJobStatusView
 
@@ -15,6 +16,7 @@ app_name = 'generation'
 
 urlpatterns = [
     path('settings/', GenerationSettingsView.as_view(), name='settings'),
+    path('metrics/', OperationalMetricsView.as_view(), name='operational-metrics'),
     path('settings/providers/<int:provider_id>/models/', ProviderModelsPartialView.as_view(), name='provider-models'),
     path('lessons/<uuid:lesson_id>/generate/', LessonGenerationView.as_view(), name='lesson-generate'),
     path(

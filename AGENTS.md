@@ -32,6 +32,8 @@ From repository root, use the workspace virtual environment:
 
 For production setting changes, run `python manage.py check --deploy` with non-debug environment values. Use mocked/fake adapters in tests; do not make real provider calls.
 
+Before a production release, run `python manage.py production_readiness` with production environment values after `collectstatic`. It must remain read-only with respect to provider APIs: validate configuration and connectivity only, never send an LLM request, and never print secrets or connection URLs.
+
 ## Editing and delivery
 
 - Use `apply_patch` for source and documentation edits.

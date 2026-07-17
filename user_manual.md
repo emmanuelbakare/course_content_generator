@@ -186,6 +186,18 @@ Only staff users can open **Generation settings**.
 
 Do not paste provider keys into the application, course notes, or logs. Set them only in the deployment platform’s secret manager/environment.
 
+### Operational metrics
+
+Staff users can open **Operational metrics** from the navigation. The page reports curriculum and lesson generation success, export success, curriculum approval-or-edit rate, the median course-to-approved-curriculum time proxy, and queued/running jobs beyond the configured threshold.
+
+By default, rates use terminal jobs created in the last 30 days. Generation provider-configuration and invalid-target failures are excluded; cancelled jobs count as unsuccessful, and active jobs are excluded until terminal. Approval-or-edit counts successful generated curricula that are approved or followed by a newer immutable revision. The approval-time figure is a proxy from course creation to the first approved curriculum record's creation time because the application does not yet retain the exact approval-click timestamp.
+
+The app does not store authorization-attempt events. Keep ownership-isolation tests in CI and monitor structured web logs for unexpected authorization 403/404 responses; the goal is zero successful cross-owner access attempts.
+
+### Production readiness check
+
+Before deploying, an operator should run `python manage.py production_readiness` with production environment values. It does not generate content or contact an LLM. It validates production security settings, database and Redis reachability, the enabled default provider/model, presence of the provider key without displaying it, private export storage permissions, and the collected static manifest. Resolve every reported failure before accepting traffic.
+
 ## Troubleshooting
 
 | Symptom | What to check |
@@ -209,11 +221,11 @@ This section records features described in the product documents that are not ye
 | Curriculum versions | Draft/approved/superseded versions are retained; owners can compare two versions and restore a historical version as a new draft | There is no visual merge tool for combining portions of two versions. |
 | Projects | AI and manual curriculum versions can persist an overall `CourseProject`, display it in review/workspace, and include it in exports | Section-level project examples are not modeled. |
 | Lesson generation | Individual and selected-lesson batch generation, AI revision, retry, cancellation, manual revisions; generated lessons require a structured instructional plan and are rendered into editable Markdown | There is no whole-course automatic generation schedule. |
-| Diagrams and media | Markdown is safely rendered | Mermaid is not rendered as a diagram, and the product does not generate images, slides, video, or other media assets. |
+| Diagrams and media | Markdown is safely rendered; explicitly labelled Mermaid fences render through a pinned local asset with a readable source fallback | The product does not generate images, slides, video, or other media assets. |
 | Revision history | Revision numbers and summaries are listed; owners can safely view and restore historical revisions as new immutable copies | There is no visual diff between two lesson revisions. |
-| Curriculum job controls | Curriculum jobs are persisted and have a JSON status endpoint | The course overview does not show curriculum job progress or provide retry/cancel controls. |
-| Exports | Private Markdown/DOCX/PDF files, course export history, and completed-download links exist | The UI does not auto-refresh export progress and has no export cancellation control. |
+| Curriculum job controls | Course-overview HTMX status polling, safe errors, cooperative cancellation, and retry controls exist | There is no global queue dashboard or bulk curriculum-job control. |
+| Exports | Private Markdown/DOCX/PDF files, live status polling, queued-only cancellation, failed-export retry, and completed-download links exist | There is no batch export workflow. |
 | Accounts | Login/logout and ownership isolation | There is no self-registration, password reset, team roles, collaboration, or comments. |
-| Reporting | Jobs and attempts are stored | The success metrics and operational dashboards in the PRD are not implemented. |
+| Reporting | Staff operational metrics cover generation/export success, approval-or-edit, approval-time proxy, and overdue non-terminal jobs | Qualitative feedback capture and a durable authorization-attempt event stream are not implemented. |
 
 These gaps do not prevent the core single-instructor workflow, but they should be planned before claiming full PRD completion.

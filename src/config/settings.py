@@ -162,6 +162,10 @@ CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '840'
 CELERY_TASK_ALWAYS_EAGER = env_bool('CELERY_TASK_ALWAYS_EAGER', default=False)
 CELERY_TASK_EAGER_PROPAGATES = env_bool('CELERY_TASK_EAGER_PROPAGATES', default=False)
 
+# Staff operational reporting. These only affect reporting windows and alerts.
+OPERATIONS_METRICS_DAYS = env_int('OPERATIONS_METRICS_DAYS', 30)
+OPERATIONS_STUCK_JOB_MINUTES = env_int('OPERATIONS_STUCK_JOB_MINUTES', 30)
+
 # These remain development-friendly by default and become strict when DEBUG is false.
 SECURE_SSL_REDIRECT = env_bool('DJANGO_SECURE_SSL_REDIRECT', default=not DEBUG)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if env_bool(

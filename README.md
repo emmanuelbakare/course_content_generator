@@ -67,6 +67,8 @@ DJANGO_SESSION_COOKIE_SECURE=True
 DJANGO_CSRF_COOKIE_SECURE=True
 DJANGO_SECURE_HSTS_SECONDS=31536000
 DJANGO_SECURE_HSTS_PRELOAD=True
+OPERATIONS_METRICS_DAYS=30
+OPERATIONS_STUCK_JOB_MINUTES=30
 ```
 
 Release and process commands (run from `src`):
@@ -75,6 +77,7 @@ Release and process commands (run from `src`):
 python manage.py migrate
 python manage.py collectstatic --noinput
 python manage.py check --deploy
+python manage.py production_readiness
 gunicorn config.wsgi:application --bind 0.0.0.0:8000
 celery -A config worker --loglevel=info
 ```
@@ -89,3 +92,5 @@ Terminate TLS at a trusted reverse proxy and pass `X-Forwarded-Proto: https` onl
 - The current private export storage is the local `MEDIA_ROOT`. A multi-instance or ephemeral deployment must provide a shared persistent volume or replace the storage backend with a private object store before enabling exports.
 - Create provider/model records through the administrator settings page, then set the corresponding provider key environment variable (for example `OPENAI_API_KEY`) in the platform secret manager. Keys are intentionally never entered into or returned from Django.
 - Run one Celery worker deployment for the same code release and monitor its connection to Redis. Queue work is not processed while the worker is unavailable.
+- Staff can review the operational metrics page. It uses the configurable `OPERATIONS_METRICS_DAYS` reporting window and `OPERATIONS_STUCK_JOB_MINUTES` threshold. Keep owner-isolation authorization tests in CI and alert from structured web logs on unusual 403/404 authorization responses; the application deliberately does not persist access-attempt events.
+- Before routing traffic to a release, run `python manage.py production_readiness` with production environment values. It checks production settings, database and Redis reachability, enabled default provider/model configuration, presence of (but never prints) the provider key, private-export storage, and the static manifest. It never sends a provider or LLM request; correct every actionable failure before release.
