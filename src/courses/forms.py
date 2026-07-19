@@ -17,7 +17,8 @@ class CourseCreateForm(forms.ModelForm):
     class Meta:
         model = Course
         fields = (
-            'title', 'topic', 'target_audience', 'level', 'language', 'delivery_mode',
+            'title', 'topic', 'target_audience', 'starting_level', 'target_completion_level',
+            'language', 'delivery_mode',
             'desired_duration_minutes', 'prerequisites', 'required_tools', 'constraints',
             'author_notes',
         )
@@ -32,9 +33,45 @@ class CourseCreateForm(forms.ModelForm):
     def clean_learning_outcomes_text(self):
         return [line.strip() for line in self.cleaned_data['learning_outcomes_text'].splitlines() if line.strip()]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        progression_choices = [
+            choice for choice in Course.Level.choices if choice[0] in Course.PROGRESSION_LEVELS
+        ]
+        self.fields['starting_level'].choices = progression_choices
+        self.fields['starting_level'].required = True
+        self.fields['starting_level'].initial = Course.Level.BEGINNER
+        self.fields['starting_level'].help_text = 'The knowledge level learners have when they begin.'
+        self.fields['target_completion_level'].choices = progression_choices
+        self.fields['target_completion_level'].required = True
+        self.fields['target_completion_level'].initial = Course.Level.BEGINNER
+        self.fields['target_completion_level'].help_text = (
+            'The knowledge level learners should reach by the end of the course.'
+        )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        starting_level = cleaned_data.get('starting_level')
+        target_level = cleaned_data.get('target_completion_level')
+        if (
+            starting_level in Course.LEVEL_RANKS
+            and target_level in Course.LEVEL_RANKS
+            and Course.LEVEL_RANKS[target_level] < Course.LEVEL_RANKS[starting_level]
+        ):
+            self.add_error(
+                'target_completion_level',
+                'The target completion level cannot be below the starting level.',
+            )
+        return cleaned_data
+
     def save(self, commit=True):
         course = super().save(commit=False)
         course.learning_outcomes = self.cleaned_data['learning_outcomes_text']
+        course.level = (
+            course.starting_level
+            if course.starting_level == course.target_completion_level
+            else Course.Level.MIXED
+        )
         if commit:
             course.save()
         return course

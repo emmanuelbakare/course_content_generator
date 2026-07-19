@@ -15,7 +15,7 @@ class LLMProviderForm(forms.ModelForm):
 
     class Meta:
         model = LLMProvider
-        fields = ('name', 'adapter_type', 'base_url', 'enabled', 'display_order')
+        fields = ('name', 'description', 'adapter_type', 'base_url', 'enabled', 'display_order')
 
     def clean(self):
         cleaned_data = super().clean()
@@ -44,7 +44,7 @@ class LLMModelForm(forms.ModelForm):
         model = LLMModel
         fields = (
             'identifier', 'display_name', 'enabled', 'default_temperature',
-            'default_max_output_tokens', 'display_order',
+            'default_max_output_tokens', 'description', 'display_order',
         )
 
     def __init__(self, *args, provider, **kwargs):
@@ -65,7 +65,7 @@ class GenerationSettingsForm(forms.ModelForm):
         model = GenerationSettings
         fields = (
             'default_provider', 'default_model', 'default_temperature',
-            'max_output_tokens', 'max_continuations', 'request_timeout_seconds',
+            'max_output_tokens', 'curriculum_response_limit', 'max_continuations', 'request_timeout_seconds',
             'max_retries', 'daily_cost_budget',
         )
 
@@ -77,6 +77,15 @@ class GenerationSettingsForm(forms.ModelForm):
             enabled=True,
             provider=provider,
         ) if provider else LLMModel.objects.none()
+        self.fields['curriculum_response_limit'].label = 'Curriculum response limit'
+        self.fields['curriculum_response_limit'].help_text = (
+            'Enter a number such as 4 to allow up to that many provider responses per curriculum job. '
+            'Leave blank for Unlimited.'
+        )
+        self.fields['max_continuations'].label = 'Max Repair Attempts'
+        self.fields['max_continuations'].help_text = (
+            'Maximum attempts to repair invalid or incomplete structured output before it is sent for review.'
+        )
 
     def clean(self):
         cleaned_data = super().clean()

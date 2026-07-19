@@ -1,16 +1,22 @@
 """Structured LLM output contracts for generation orchestration."""
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-class CurriculumLessonOutput(BaseModel):
+class CurriculumSchemaModel(BaseModel):
+    """Strict schema base so generated JSON has a predictable shape."""
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra='forbid')
+
+
+class CurriculumLessonOutput(CurriculumSchemaModel):
     title: str = Field(min_length=1, max_length=255)
     duration_minutes: int = Field(gt=0)
     objectives: list[str] = Field(default_factory=list)
     outline: str = ''
 
 
-class CurriculumSectionOutput(BaseModel):
+class CurriculumSectionOutput(CurriculumSchemaModel):
     title: str = Field(min_length=1, max_length=255)
     duration_minutes: int = Field(gt=0)
     lessons: list[CurriculumLessonOutput] = Field(min_length=1)
@@ -18,14 +24,14 @@ class CurriculumSectionOutput(BaseModel):
     learning_outcomes: list[str] = Field(default_factory=list)
 
 
-class CourseProjectOutput(BaseModel):
+class CourseProjectOutput(CurriculumSchemaModel):
     title: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1)
     deliverables: list[str] = Field(default_factory=list)
     evaluation_criteria: list[str] = Field(default_factory=list)
 
 
-class CurriculumOutput(BaseModel):
+class CurriculumOutput(CurriculumSchemaModel):
     course_description: str = ''
     overall_learning_outcomes: list[str] = Field(min_length=1)
     prerequisites: str = ''
@@ -33,6 +39,19 @@ class CurriculumOutput(BaseModel):
     duration_estimate_explanation: str = Field(min_length=1)
     sections: list[CurriculumSectionOutput] = Field(min_length=1)
     project: CourseProjectOutput | None = None
+
+    @field_validator('course_description', 'prerequisites', 'duration_estimate_explanation', mode='before')
+    @classmethod
+    def normalize_line_list_to_text(cls, value):
+        """Accept a conventional list of lines while persisting canonical text.
+
+        Some providers naturally return prerequisites as a list.  It is safe to
+        normalise a list made solely of strings; other invalid types remain a
+        validation error rather than being silently coerced.
+        """
+        if isinstance(value, list) and all(isinstance(item, str) for item in value):
+            return '\n'.join(value)
+        return value
 
 
 class LessonPlanItem(BaseModel):

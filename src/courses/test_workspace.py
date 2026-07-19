@@ -83,6 +83,21 @@ class CourseWorkspaceTests(TestCase):
         self.assertContains(response, 'Revision 1')
         self.assertContains(response, 'Generate selected lessons')
 
+    def test_workspace_shows_generated_content_estimate_separately_from_curriculum_plan(self):
+        create_lesson_revision(
+            self.lesson,
+            created_by=self.owner,
+            content_markdown='A short generated lesson.',
+            metadata={'estimated_content_duration_minutes': 15},
+            change_summary='Generated lesson',
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.get(f'{self.workspace_url}?lesson={self.lesson.public_id}')
+
+        self.assertContains(response, 'Estimated content time: ~15 min')
+        self.assertContains(response, 'Curriculum plan: 30 min')
+
     def test_workspace_includes_local_mermaid_bundle_and_safe_fallback(self):
         create_lesson_revision(
             self.lesson,

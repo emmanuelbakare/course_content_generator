@@ -1,79 +1,89 @@
 {% extends 'base.html' %}
+{% load static %}
 
-{% block title %}Generation settings · Course Content Generator{% endblock %}
+{% block title %}Generation settings &middot; Course Content Generator{% endblock %}
 
 {% block content %}
     <section class="hero" aria-labelledby="settings-title">
         <div>
             <p class="eyebrow">Administrator settings</p>
             <h1 id="settings-title">Generation settings</h1>
-            <p>Manage approved providers and models. API keys are configured only on the application server.</p>
+            <p>Provider &amp; Model configuration for course generation. API keys stay in the server environment.</p>
+            <p class="active-model-summary"><strong>Current model:</strong> {% if settings_form.instance.default_model %}{{ settings_form.instance.default_model.display_name|default:settings_form.instance.default_model.identifier }}{% else %}No model selected{% endif %}</p>
         </div>
     </section>
-
-    <section class="settings-grid">
-        <div class="panel">
-            <h2>Default generation configuration</h2>
+    <div class="settings-tabs" role="tablist" aria-label="Generation settings sections">
+        <button class="settings-tab {% if active_tab == 'generation' %}is-active{% endif %}" id="generation-controls-tab" type="button" role="tab" aria-selected="{% if active_tab == 'generation' %}true{% else %}false{% endif %}" aria-controls="generation-controls-panel">Generation controls</button>
+        <button class="settings-tab {% if active_tab == 'providers' %}is-active{% endif %}" id="provider-models-tab" type="button" role="tab" aria-selected="{% if active_tab == 'providers' %}true{% else %}false{% endif %}" aria-controls="provider-models-panel">Providers &amp; models</button>
+    </div>
+    <section class="panel" id="generation-controls-panel" role="tabpanel" aria-labelledby="generation-controls-tab"{% if active_tab != 'generation' %} hidden{% endif %}>
+            <div class="panel-heading"><div><p class="eyebrow">Generation controls</p><h2 id="generation-limits-title">Response and request limits</h2><p>For curriculum jobs, enter a response limit or leave it blank for Unlimited continuation until completion, cancellation, or task timeout.</p></div></div>
             <form method="post" class="stacked-form">
-                {% csrf_token %}<input type="hidden" name="action" value="save_defaults">
-                {% for field in settings_form %}
-                    <div class="form-field">
-                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                        {% if field.name == 'default_provider' %}
-                            <select name="{{ field.html_name }}" id="{{ field.id_for_label }}">
-                                {% for choice in field.field.choices %}<option value="{{ choice.0 }}" {% if field.value|stringformat:'s' == choice.0|stringformat:'s' %}selected{% endif %}>{{ choice.1 }}</option>{% endfor %}
-                            </select>
-                        {% elif field.name == 'default_model' %}
-                            <div id="default-model-field">{% include 'generation/partials/default_model_field.html' with field=field %}</div>
-                        {% else %}
-                            {{ field }}
-                        {% endif %}
-                        {% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}
-                    </div>
-                {% endfor %}
-                <button class="button button-primary" type="submit">Save defaults</button>
+                {% csrf_token %}<input type="hidden" name="action" value="save_defaults"><input type="hidden" name="tab" value="generation">
+                {% for field in settings_form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>{% endfor %}
+                <div class="form-actions"><button class="button button-primary" type="submit">Save generation controls</button></div>
             </form>
-        </div>
-
-        <div class="panel" id="provider-models">
-            {% include 'generation/partials/provider_catalog.html' %}
-        </div>
     </section>
-
-    <section class="settings-grid">
-        <div class="panel">
-            <h2>{% if editing_provider %}Edit provider{% else %}Add provider{% endif %}</h2>
-            <form method="post" class="stacked-form">
-                {% csrf_token %}<input type="hidden" name="action" value="save_provider">
-                {% if editing_provider %}<input type="hidden" name="provider_id" value="{{ editing_provider }}">{% endif %}
-                {% for field in provider_form %}
-                    <div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>
-                {% endfor %}
-                <button class="button button-secondary" type="submit">Save provider</button>
-            </form>
-        </div>
-
-        {% if selected_provider %}
-            <div class="panel">
-                <h2>{% if editing_model %}Edit model{% else %}Add model{% endif %} for {{ selected_provider.name }}</h2>
-                <form method="post" class="stacked-form">
-                    {% csrf_token %}<input type="hidden" name="action" value="save_model"><input type="hidden" name="provider_id" value="{{ selected_provider.id }}">
-                    {% if editing_model %}<input type="hidden" name="model_id" value="{{ editing_model }}">{% endif %}
-                    {% for field in model_form %}
-                        <div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.errors %}<div class="form-errors">{{ field.errors }}</div>{% endif %}</div>
-                    {% endfor %}
-                    <button class="button button-secondary" type="submit">Save model</button>
-                </form>
+    <section class="provider-model-layout" id="provider-models-panel" role="tabpanel" aria-labelledby="provider-models-tab"{% if active_tab != 'providers' %} hidden{% endif %}>
+        <aside class="provider-pane">
+            <div class="panel-heading">
+                <div><p class="eyebrow">Settings</p><h2>LLM Providers</h2></div>
+                <a class="button button-primary" href="{% url 'generation:settings' %}?tab=providers&amp;new_provider=1">Add</a>
             </div>
-        {% endif %}
+            {% if show_provider_form %}
+                <form method="post" class="stacked-form inline-editor">
+                    {% csrf_token %}<input type="hidden" name="action" value="save_provider"><input type="hidden" name="tab" value="providers">
+                    {% if editing_provider %}<input type="hidden" name="provider_id" value="{{ editing_provider }}">{% endif %}
+                    {% for field in provider_form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+                    <div class="form-actions"><button class="button button-secondary" type="submit">Save provider</button><a class="button button-secondary" href="{% url 'generation:settings' %}?tab=providers">Cancel</a></div>
+                </form>
+            {% endif %}
+            <div class="provider-list">
+                {% for provider in providers %}
+                    <article class="provider-card {% if selected_provider and provider.id == selected_provider.id %}selected{% endif %}">
+                        <div class="provider-card-heading">
+                            <a class="provider-card-selector" href="{% url 'generation:settings' %}?tab=providers&amp;provider={{ provider.id }}" aria-label="Select {{ provider.name }} provider">
+                                <h3>{{ provider.name }}</h3>
+                                <p>{{ provider.get_adapter_type_display }}</p>
+                                <p class="key-status {% if provider.is_api_key_configured %}configured{% else %}missing{% endif %}">{{ provider.models.count }} models &middot; {% if provider.is_api_key_configured %}API key configured{% else %}API key missing{% endif %}</p>
+                            </a>
+                            <div class="version-actions">
+                                <a class="button button-secondary" href="{% url 'generation:settings' %}?tab=providers&amp;provider={{ provider.id }}&amp;edit_provider={{ provider.id }}">Edit</a>
+                                <form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_provider"><input type="hidden" name="provider_id" value="{{ provider.id }}"><input type="hidden" name="tab" value="providers"><button class="button button-danger" type="submit">Delete</button></form>
+                            </div>
+                        </div>
+                    </article>
+                {% empty %}
+                    <div class="empty-state compact"><h3>No providers configured</h3><p>Add a provider to manage its models.</p></div>
+                {% endfor %}
+            </div>
+        </aside>
+        <section class="model-pane" id="provider-model-pane">
+            {% if selected_provider %}
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">API key {% if selected_provider.is_api_key_configured %}configured{% else %}missing{% endif %}</p>
+                        <h2>{{ selected_provider.name }}</h2>
+                        {% if selected_provider.description %}<p>{{ selected_provider.description }}</p>{% endif %}
+                    </div>
+                    <a class="button button-primary" href="{% url 'generation:settings' %}?tab=providers&amp;provider={{ selected_provider.id }}&amp;new_model=1">Add</a>
+                </div>
+                {% if show_model_form %}
+                    <form method="post" class="stacked-form inline-editor">
+                        {% csrf_token %}<input type="hidden" name="action" value="save_model"><input type="hidden" name="provider_id" value="{{ selected_provider.id }}"><input type="hidden" name="tab" value="providers">
+                        {% if editing_model %}<input type="hidden" name="model_id" value="{{ editing_model }}">{% endif %}
+                        {% for field in model_form %}<div class="form-field"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+                        <div class="form-actions"><button class="button button-secondary" type="submit">Save model</button><a class="button button-secondary" href="{% url 'generation:settings' %}?tab=providers&amp;provider={{ selected_provider.id }}">Cancel</a></div>
+                    </form>
+                {% endif %}
+                {% include 'generation/partials/provider_models.html' with selected_provider=selected_provider models=selected_provider.models.all generation_settings=settings_form.instance %}
+            {% else %}
+                <div class="empty-state"><h2>Add a provider</h2><p>Add a provider before managing course-generation models.</p></div>
+            {% endif %}
+        </section>
     </section>
 {% endblock %}
 
 {% block scripts %}
-<script>
-    document.addEventListener('change', (event) => {
-        if (event.target.id !== 'id_default_provider' || !event.target.value) return;
-        htmx.ajax('GET', `/generation/settings/providers/${event.target.value}/models/`, {target: '#default-model-field', swap: 'outerHTML'});
-    });
-</script>
+    <script src="{% static 'js/settings-tabs.js' %}" defer></script>
 {% endblock %}

@@ -161,6 +161,12 @@ CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '900'))
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '840'))
 CELERY_TASK_ALWAYS_EAGER = env_bool('CELERY_TASK_ALWAYS_EAGER', default=False)
 CELERY_TASK_EAGER_PROPAGATES = env_bool('CELERY_TASK_EAGER_PROPAGATES', default=False)
+CELERY_BEAT_SCHEDULE = {
+    'recover-stale-generation-jobs': {
+        'task': 'generation.recover_stale_generation_jobs',
+        'schedule': 60.0,
+    },
+}
 
 # Staff operational reporting. These only affect reporting windows and alerts.
 OPERATIONS_METRICS_DAYS = env_int('OPERATIONS_METRICS_DAYS', 30)

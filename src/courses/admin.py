@@ -19,10 +19,16 @@ class LessonInline(admin.TabularInline):
 
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
-    list_display = ('title', 'owner', 'level', 'desired_duration_minutes', 'status', 'updated_at')
+    list_display = (
+        'title', 'owner', 'level_progression', 'desired_duration_minutes', 'status', 'updated_at'
+    )
     list_filter = ('status', 'level', 'delivery_mode')
     search_fields = ('title', 'topic', 'owner__username')
     readonly_fields = ('public_id', 'created_at', 'updated_at')
+
+    @admin.display(description='Learning progression')
+    def level_progression(self, course):
+        return course.level_progression_display
 
 
 @admin.register(CurriculumVersion)

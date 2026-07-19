@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.views import View
 
 from .models import GenerationJob
+from .previews import parse_curriculum_preview
 
 
 class GenerationJobStatusView(LoginRequiredMixin, View):
@@ -17,6 +18,7 @@ class GenerationJobStatusView(LoginRequiredMixin, View):
             course__owner=request.user,
         )
         if request.htmx:
+            latest_attempt = job.attempts.order_by('-attempt_number').first()
             return render(
                 request,
                 (
@@ -24,7 +26,13 @@ class GenerationJobStatusView(LoginRequiredMixin, View):
                     if job.job_type == GenerationJob.JobType.CURRICULUM
                     else 'components/job_status.html'
                 ),
-                {'job': job, 'status_url': reverse('generation:job-status', args=[job.public_id])},
+                {
+                    'job': job,
+                    'latest_attempt': latest_attempt,
+                    'curriculum_preview': parse_curriculum_preview(latest_attempt.response_preview)
+                    if latest_attempt and job.job_type == GenerationJob.JobType.CURRICULUM else None,
+                    'status_url': reverse('generation:job-status', args=[job.public_id]),
+                },
             )
         return JsonResponse(
             {
@@ -39,5 +47,18 @@ class GenerationJobStatusView(LoginRequiredMixin, View):
                 'created_at': job.created_at.isoformat(),
                 'started_at': job.started_at.isoformat() if job.started_at else None,
                 'completed_at': job.completed_at.isoformat() if job.completed_at else None,
+                'latest_attempt': _attempt_payload(job.attempts.order_by('-attempt_number').first()),
             }
         )
+
+
+def _attempt_payload(attempt):
+    if attempt is None:
+        return None
+    return {
+        'number': attempt.attempt_number,
+        'status': attempt.status,
+        'started_at': attempt.started_at.isoformat(),
+        'completed_at': attempt.completed_at.isoformat() if attempt.completed_at else None,
+        'response_preview': attempt.response_preview,
+    }

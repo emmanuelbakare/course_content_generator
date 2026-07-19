@@ -8,8 +8,9 @@
             <p class="eyebrow">{{ course.get_status_display }}</p>
             <h1 id="course-title">{{ course.title }}</h1>
             <p>{{ course.topic }}</p>
+            <p><strong>Learning progression:</strong> {{ course.level_progression_display }}</p>
         </div>
-        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:workspace' course.public_id %}">Open workspace</a><a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a>{% if curriculum_versions|length > 1 %}<a class="button button-secondary" href="{% url 'courses:curriculum-compare' course.public_id %}">Compare versions</a>{% endif %}</div>
+        <div class="hero-actions"><a class="button button-primary" href="{% url 'courses:workspace' course.public_id %}">Open workspace</a><a class="button button-secondary" href="{% url 'courses:manual-curriculum' course.public_id %}">Create manual curriculum</a>{% if curriculum_versions|length > 1 %}<a class="button button-secondary" href="{% url 'courses:curriculum-compare' course.public_id %}">Compare versions</a>{% endif %}<a class="button button-danger" href="{% url 'courses:delete' course.public_id %}">Delete course</a></div>
     </section>
     {% if course.status == 'approved' %}
         <section class="panel">
@@ -49,6 +50,6 @@
             {% endfor %}
         </div>
     </section>
-    {% if generation_jobs %}<section class="panel"><h2>Curriculum generation activity</h2><div class="version-list">{% for job in generation_jobs %}{% include 'components/curriculum_job_status.html' with job=job %}{% endfor %}</div></section>{% endif %}
+    {% if generation_jobs %}<section class="panel"><h2>Curriculum generation activity</h2><p class="muted">If the provider reaches its output limit before a curriculum JSON response is complete, the application requests the remaining content until the full draft validates or the job is cancelled or times out. The activity panel refreshes while the provider works and shows the owner-only draft response as soon as it is complete.</p><div class="version-list">{% for job in generation_jobs %}{% include 'components/curriculum_job_status.html' with job=job latest_attempt=job.activity_attempts.0 curriculum_preview=job.activity_attempts.0.curriculum_preview %}{% endfor %}</div></section>{% endif %}
     {% if export_jobs %}<section class="panel"><h2>Export history</h2><div class="version-list">{% for job in export_jobs %}{% include 'components/export_job_status.html' with job=job %}{% endfor %}</div></section>{% endif %}
 {% endblock %}

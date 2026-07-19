@@ -17,6 +17,7 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
 
 class GenerationSettingsView(StaffRequiredMixin, View):
     template_name = 'generation/settings.html'
+    tabs = ('generation', 'providers')
 
     def get(self, request):
         return render(request, self.template_name, self._context())
@@ -40,6 +41,8 @@ class GenerationSettingsView(StaffRequiredMixin, View):
             return redirect(f'{reverse("generation:settings")}?provider={provider_id}')
         if action == 'save_defaults':
             return self._save_defaults(request)
+        if action == 'set_default_model':
+            return self._set_default_model(request)
         messages.error(request, 'Choose a valid settings action.')
         return redirect('generation:settings')
 
@@ -67,7 +70,24 @@ class GenerationSettingsView(StaffRequiredMixin, View):
             ),
             'editing_provider': editing_provider,
             'editing_model': editing_model,
+            'show_provider_form': bool(editing_provider or self.request.GET.get('new_provider')),
+            'show_model_form': bool(editing_model or self.request.GET.get('new_model')),
+            'active_tab': self._active_tab(),
         }
+
+    def _active_tab(self):
+        """Keep provider management visible for its existing query-string workflows."""
+        requested_tab = self.request.GET.get('tab') or self.request.POST.get('tab')
+        if requested_tab in self.tabs:
+            return requested_tab
+        if any(
+            self.request.GET.get(parameter)
+            for parameter in ('provider', 'new_provider', 'edit_provider', 'new_model', 'edit_model')
+        ):
+            return 'providers'
+        if not GenerationSettings.get_solo().default_model_id and LLMProvider.objects.exists():
+            return 'providers'
+        return 'generation'
 
     def _selected_provider(self, settings):
         provider_id = self.request.GET.get('provider')
@@ -109,17 +129,33 @@ class GenerationSettingsView(StaffRequiredMixin, View):
         if form.is_valid():
             form.save()
             messages.success(request, 'Generation defaults saved.')
-            return redirect('generation:settings')
+            return redirect(f'{reverse("generation:settings")}?tab=generation')
         return render(request, self.template_name, self._context(settings_form=form, selected_provider=selected_provider))
+
+    def _set_default_model(self, request):
+        llm_model = get_object_or_404(LLMModel, pk=request.POST.get('model_id'), enabled=True)
+        if not llm_model.provider.enabled:
+            messages.error(request, 'Enable the provider before selecting one of its models.')
+        else:
+            settings = GenerationSettings.get_solo()
+            settings.default_provider = llm_model.provider
+            settings.default_model = llm_model
+            settings.save()
+            messages.success(request, 'Default provider and model saved for course generation.')
+        return redirect(f'{reverse("generation:settings")}?provider={llm_model.provider_id}')
 
 
 class ProviderModelsPartialView(StaffRequiredMixin, View):
-    template_name = 'generation/partials/default_model_field.html'
+    template_name = 'generation/partials/provider_models.html'
 
     def get(self, request, provider_id):
         provider = get_object_or_404(LLMProvider, pk=provider_id, enabled=True)
-        settings_form = GenerationSettingsForm(
-            instance=GenerationSettings.get_solo(),
-            selected_provider=provider,
+        return render(
+            request,
+            self.template_name,
+            {
+                'selected_provider': provider,
+                'models': provider.models.all(),
+                'generation_settings': GenerationSettings.get_solo(),
+            },
         )
-        return render(request, self.template_name, {'field': settings_form['default_model']})

@@ -3,15 +3,25 @@ import json
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
-from django.db.models import Count, OuterRef, Q, Subquery
+from django.db import transaction
+from django.db.models import Count, OuterRef, Prefetch, Q, Subquery
 from django.http import Http404
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, TemplateView
 
-from generation.models import GenerationJob
-from generation.services import GenerationConfigurationError, enqueue_curriculum_job
+from generation.models import GenerationAttempt, GenerationJob
+from generation.previews import parse_curriculum_preview
+from generation.services import (
+    GenerationConfigurationError,
+    GenerationDispatchError,
+    enqueue_curriculum_job,
+    estimate_content_duration_minutes,
+    recover_stale_generation_jobs,
+    request_job_cancellation,
+)
 
 from .forms import CourseCreateForm, CurriculumRevisionForm, LessonRevisionForm
 from .models import Course, CurriculumVersion, Lesson, LessonRevision
@@ -89,6 +99,11 @@ class CourseCreateView(LoginRequiredMixin, CreateView):
             enqueue_curriculum_job(course.pk)
         except GenerationConfigurationError:
             messages.warning(self.request, 'Course created. Configure an enabled default model before queuing curriculum planning.')
+        except GenerationDispatchError:
+            messages.warning(
+                self.request,
+                'Course created, but curriculum planning could not be queued. Check Redis and the Celery worker, then retry.',
+            )
         else:
             messages.success(self.request, 'Course created. Curriculum planning has been queued.')
         return redirect('courses:detail', course_id=course.public_id)
@@ -106,11 +121,123 @@ class CourseDetailView(OwnedCourseQuerysetMixin, DetailView):
         context['curriculum_versions'] = self.object.curriculum_versions.prefetch_related(
             'sections__lessons', 'course_project'
         )
-        context['generation_jobs'] = self.object.generation_jobs.filter(
+        generation_jobs = list(self.object.generation_jobs.filter(
             job_type=GenerationJob.JobType.CURRICULUM
-        )[:5]
+        ).prefetch_related(
+            Prefetch(
+                'attempts',
+                queryset=GenerationAttempt.objects.order_by('-attempt_number'),
+                to_attr='activity_attempts',
+            )
+        )[:5])
+        for job in generation_jobs:
+            for attempt in job.activity_attempts:
+                attempt.curriculum_preview = parse_curriculum_preview(attempt.response_preview)
+        context['generation_jobs'] = generation_jobs
         context['export_jobs'] = self.object.export_jobs.select_related('export_file')[:5]
         return context
+
+
+class CourseDeleteView(OwnedCourseQuerysetMixin, View):
+    """Confirm and permanently delete an owner-scoped course and its private data."""
+
+    template_name = 'courses/course_confirm_delete.html'
+    active_generation_statuses = (
+        GenerationJob.Status.QUEUED,
+        GenerationJob.Status.RUNNING,
+        GenerationJob.Status.RETRYING,
+    )
+    active_export_statuses = ('queued', 'running')
+
+    def get(self, request, course_id):
+        return render(request, self.template_name, self._context(self.get_course()))
+
+    def post(self, request, course_id):
+        course = self.get_course()
+        if request.POST.get('action') == 'cancel_active_work':
+            return self._cancel_active_work(request, course)
+        context = self._context(course)
+        if context['active_generation_count'] or context['active_export_count']:
+            messages.error(
+                request,
+                'This course cannot be deleted while background generation or export work is active.',
+            )
+            return render(request, self.template_name, context, status=409)
+        course_title = course.title
+        # Database cascade removes curricula, lessons, revisions, jobs, attempts,
+        # export records, and their authorization metadata. File storage is separate,
+        # so remove private export files only after the database commit succeeds.
+        from exports.models import ExportFile, ExportJob
+
+        private_files = [
+            (export_file.file.storage, export_file.file.name)
+            for export_file in ExportFile.objects.filter(job__course=course).exclude(file='')
+        ]
+        with transaction.atomic():
+            # ExportJob protects its approved curriculum snapshot, so remove
+            # terminal export records first. Their ExportFile records cascade.
+            ExportJob.objects.filter(course=course).delete()
+            course.delete()
+
+            def delete_private_files():
+                for storage, name in private_files:
+                    storage.delete(name)
+
+            transaction.on_commit(delete_private_files)
+        messages.success(request, f'Course "{course_title}" and its private content were permanently deleted.')
+        return redirect('courses:list')
+
+    def _cancel_active_work(self, request, course):
+        """Request safe cancellation before allowing permanent deletion."""
+        active_generation_jobs = list(
+            course.generation_jobs.filter(status__in=self.active_generation_statuses)
+        )
+        for job in active_generation_jobs:
+            request_job_cancellation(job)
+
+        from exports.services import cancel_export_job
+
+        queued_exports = list(course.export_jobs.filter(status='queued'))
+        for job in queued_exports:
+            cancel_export_job(job, requested_by=request.user)
+
+        if active_generation_jobs or queued_exports:
+            messages.success(
+                request,
+                'Cancellation requested. This page will refresh until it is safe to permanently delete the course.',
+            )
+        if course.export_jobs.filter(status='running').exists():
+            messages.warning(
+                request,
+                'A running export cannot be interrupted safely. This page will enable deletion after it finishes.',
+            )
+        return redirect('courses:delete', course_id=course.public_id)
+
+    def _context(self, course):
+        # A worker crash can otherwise leave a cancelled request marked running
+        # forever and prevent the owner from deleting the course.
+        recover_stale_generation_jobs(course=course)
+        active_generation_jobs = course.generation_jobs.filter(
+            status__in=self.active_generation_statuses
+        )
+        active_generation_count = active_generation_jobs.count()
+        queued_export_count = course.export_jobs.filter(status='queued').count()
+        running_export_count = course.export_jobs.filter(status='running').count()
+        active_export_count = queued_export_count + running_export_count
+        return {
+            'course': course,
+            'active_generation_count': active_generation_count,
+            'active_export_count': active_export_count,
+            'queued_export_count': queued_export_count,
+            'running_export_count': running_export_count,
+            'generation_cancellation_requested_count': active_generation_jobs.exclude(
+                cancellation_requested_at__isnull=True
+            ).count(),
+            'active_generation_jobs': active_generation_jobs,
+            'can_cancel_active_work': bool(active_generation_count or queued_export_count),
+            'can_delete': not active_generation_count and not active_export_count,
+            'checked_at': timezone.localtime(),
+        }
 
 
 class CourseWorkspaceView(OwnedCourseQuerysetMixin, TemplateView):
@@ -135,6 +262,15 @@ class CourseWorkspaceView(OwnedCourseQuerysetMixin, TemplateView):
         if self.curriculum:
             for section in self.curriculum.sections.all():
                 lessons.extend(section.lessons.all())
+        latest_revisions = {}
+        for lesson in lessons:
+            revisions = list(lesson.revisions.all())
+            revision = revisions[0] if revisions else None
+            latest_revisions[lesson.pk] = revision
+            estimate = (revision.metadata or {}).get('estimated_content_duration_minutes') if revision else None
+            if revision and not isinstance(estimate, int):
+                estimate = estimate_content_duration_minutes(revision.content_markdown)
+            lesson.estimated_content_duration_minutes = estimate if isinstance(estimate, int) and estimate > 0 else None
         selected_lesson_id = self.request.GET.get('lesson')
         selected_lesson = next(
             (lesson for lesson in lessons if str(lesson.public_id) == selected_lesson_id),
@@ -142,7 +278,7 @@ class CourseWorkspaceView(OwnedCourseQuerysetMixin, TemplateView):
         )
         if selected_lesson_id and selected_lesson is None:
             raise Http404('Selected lesson is not part of this curriculum.')
-        latest_revision = selected_lesson.revisions.first() if selected_lesson else None
+        latest_revision = latest_revisions.get(selected_lesson.pk) if selected_lesson else None
         active_job = None
         if selected_lesson:
             active_job = next(
@@ -158,6 +294,9 @@ class CourseWorkspaceView(OwnedCourseQuerysetMixin, TemplateView):
                 'curriculum': self.curriculum,
                 'selected_lesson': selected_lesson,
                 'latest_revision': latest_revision,
+                'estimated_content_duration_minutes': (
+                    selected_lesson.estimated_content_duration_minutes if selected_lesson else None
+                ),
                 'rendered_content': render_safe_markdown(latest_revision.content_markdown) if latest_revision else '',
                 'revision_form': LessonRevisionForm(
                     initial={
@@ -277,9 +416,18 @@ class CurriculumReviewView(OwnedCourseQuerysetMixin, TemplateView):
                 self.course.status = Course.Status.PLANNING
                 self.course.save(update_fields=('status', 'updated_at'))
                 try:
-                    enqueue_curriculum_job(self.course.pk, revision_instruction=instruction)
+                    enqueue_curriculum_job(
+                        self.course.pk,
+                        revision_instruction=instruction,
+                        source_curriculum_version_id=self.curriculum.pk,
+                    )
                 except GenerationConfigurationError:
                     messages.warning(request, 'Configure an enabled default model before queuing the revision.')
+                except GenerationDispatchError:
+                    messages.warning(
+                        request,
+                        'Curriculum revision could not be queued. Check Redis and the Celery worker, then retry.',
+                    )
                 else:
                     messages.success(request, 'Curriculum revision has been queued.')
             return redirect('courses:curriculum-review', course_id=self.course.public_id, curriculum_id=self.curriculum.public_id)

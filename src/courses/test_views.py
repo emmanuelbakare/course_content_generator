@@ -1,10 +1,16 @@
 import json
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.test.client import RequestFactory
 from django.urls import reverse
+from django.utils import timezone
+
+from exports.models import ExportJob
+from generation.models import GenerationJob, LLMModel, LLMProvider
+from generation.services import GenerationDispatchError
 
 from .models import Course, CurriculumVersion, Lesson
 from .services import (
@@ -43,6 +49,110 @@ class CourseAuthoringWorkflowTests(TestCase):
 
         self.assertContains(response, 'Python foundations')
         self.assertNotContains(response, 'Private course')
+        self.assertContains(response, 'Delete course')
+
+    def test_only_the_owner_can_confirm_and_delete_a_course(self):
+        delete_url = reverse('courses:delete', args=[self.course.public_id])
+        self.client.force_login(self.other_user)
+
+        self.assertEqual(self.client.get(delete_url).status_code, 404)
+        self.assertEqual(
+            self.client.post(delete_url).status_code,
+            404,
+        )
+
+        self.client.force_login(self.owner)
+        response = self.client.get(delete_url)
+        self.assertContains(response, 'Permanently delete')
+        self.assertContains(response, self.course.title)
+
+        self.assertContains(response, 'Are you sure you want to permanently delete this course?')
+        self.assertNotContains(response, 'confirmation-title')
+
+        response = self.client.post(delete_url)
+        self.assertRedirects(response, reverse('courses:list'))
+        self.assertFalse(Course.objects.filter(pk=self.course.pk).exists())
+
+    def test_course_delete_is_blocked_while_generation_or_export_work_is_active(self):
+        delete_url = reverse('courses:delete', args=[self.course.public_id])
+        provider = LLMProvider.objects.create(
+            name='Delete test provider',
+            adapter_type=LLMProvider.AdapterType.OPENAI,
+            api_key_environment_variable='DELETE_TEST_PROVIDER_API_KEY',
+        )
+        model = LLMModel.objects.create(provider=provider, identifier='delete-test-model')
+        GenerationJob.objects.create(
+            course=self.course,
+            provider=provider,
+            llm_model=model,
+            job_type=GenerationJob.JobType.CURRICULUM,
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.post(delete_url)
+
+        self.assertEqual(response.status_code, 409)
+        self.assertContains(response, 'Background work is still active', status_code=409)
+        self.assertTrue(Course.objects.filter(pk=self.course.pk).exists())
+
+        response = self.client.post(delete_url, {'action': 'cancel_active_work'}, follow=True)
+        generation_job = GenerationJob.objects.get(course=self.course)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Cancellation requested')
+        self.assertIsNotNone(generation_job.cancellation_requested_at)
+        self.assertEqual(generation_job.status, GenerationJob.Status.CANCELLED)
+        self.assertContains(response, 'Permanently delete course')
+
+        response = self.client.post(delete_url)
+        self.assertRedirects(response, reverse('courses:list'))
+        self.assertFalse(Course.objects.filter(pk=self.course.pk).exists())
+
+    def test_course_delete_recovers_a_stale_cancelled_running_job(self):
+        delete_url = reverse('courses:delete', args=[self.course.public_id])
+        provider = LLMProvider.objects.create(
+            name='Stale delete provider',
+            adapter_type=LLMProvider.AdapterType.OPENAI,
+            api_key_environment_variable='STALE_DELETE_TEST_PROVIDER_API_KEY',
+        )
+        model = LLMModel.objects.create(provider=provider, identifier='stale-delete-test-model')
+        job = GenerationJob.objects.create(
+            course=self.course,
+            provider=provider,
+            llm_model=model,
+            job_type=GenerationJob.JobType.CURRICULUM,
+            status=GenerationJob.Status.RUNNING,
+        )
+        now = timezone.now()
+        GenerationJob.objects.filter(pk=job.pk).update(
+            started_at=now - timedelta(seconds=1_000),
+            cancellation_requested_at=now - timedelta(seconds=900),
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.post(delete_url)
+
+        self.assertRedirects(response, reverse('courses:list'))
+        self.assertFalse(Course.objects.filter(pk=self.course.pk).exists())
+
+    def test_course_deletion_cascades_completed_export_records(self):
+        curriculum = create_curriculum_revision(self.course, sections=self.sections, approve=True)
+        export_job = ExportJob.objects.create(
+            course=self.course,
+            curriculum_version=curriculum,
+            requested_by=self.owner,
+            export_format=ExportJob.Format.MARKDOWN,
+            status=ExportJob.Status.SUCCEEDED,
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.post(
+            reverse('courses:delete', args=[self.course.public_id]),
+            {},
+        )
+
+        self.assertRedirects(response, reverse('courses:list'))
+        self.assertFalse(Course.objects.filter(pk=self.course.pk).exists())
+        self.assertFalse(ExportJob.objects.filter(pk=export_job.pk).exists())
 
     def test_course_list_displays_approved_duration_and_lesson_completion(self):
         curriculum = create_curriculum_revision(self.course, sections=self.sections, approve=True)
@@ -106,7 +216,8 @@ class CourseAuthoringWorkflowTests(TestCase):
                 'title': 'Django foundations',
                 'topic': 'Build web applications.',
                 'target_audience': 'Developers',
-                'level': Course.Level.BEGINNER,
+                'starting_level': Course.Level.BEGINNER,
+                'target_completion_level': Course.Level.ADVANCED,
                 'language': 'en',
                 'delivery_mode': Course.DeliveryMode.INSTRUCTOR_LED,
                 'desired_duration_minutes': 60,
@@ -119,6 +230,54 @@ class CourseAuthoringWorkflowTests(TestCase):
         self.assertEqual(course.owner, self.owner)
         self.assertEqual(course.status, Course.Status.PLANNING)
         self.assertEqual(course.learning_outcomes, ['Create a project', 'Build a view'])
+        self.assertEqual(course.starting_level, Course.Level.BEGINNER)
+        self.assertEqual(course.target_completion_level, Course.Level.ADVANCED)
+        self.assertEqual(course.level_progression_display, 'Beginner → Advanced')
+        self.assertEqual(course.level, Course.Level.MIXED)
+        enqueue.assert_called_once_with(course.pk)
+
+    @patch('courses.views.enqueue_curriculum_job')
+    def test_course_creation_rejects_a_descending_learning_progression(self, enqueue):
+        self.client.force_login(self.owner)
+
+        response = self.client.post(
+            reverse('courses:create'),
+            {
+                'title': 'Advanced to beginner course',
+                'topic': 'Invalid learning progression.',
+                'starting_level': Course.Level.ADVANCED,
+                'target_completion_level': Course.Level.BEGINNER,
+                'language': 'en',
+                'delivery_mode': Course.DeliveryMode.INSTRUCTOR_LED,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'cannot be below the starting level')
+        self.assertFalse(Course.objects.filter(title='Advanced to beginner course').exists())
+        enqueue.assert_not_called()
+
+    @patch('courses.views.enqueue_curriculum_job', side_effect=GenerationDispatchError('Broker unavailable'))
+    def test_course_creation_handles_an_unavailable_generation_queue(self, enqueue):
+        self.client.force_login(self.owner)
+
+        response = self.client.post(
+            reverse('courses:create'),
+            {
+                'title': 'Queued later course',
+                'topic': 'Create safely when Redis is unavailable.',
+                'starting_level': Course.Level.BEGINNER,
+                'target_completion_level': Course.Level.BEGINNER,
+                'language': 'en',
+                'delivery_mode': Course.DeliveryMode.INSTRUCTOR_LED,
+            },
+            follow=True,
+        )
+
+        course = Course.objects.get(title='Queued later course')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'curriculum planning could not be queued')
+        self.assertEqual(course.status, Course.Status.PLANNING)
         enqueue.assert_called_once_with(course.pk)
 
     def test_owner_can_create_reordered_manual_curriculum_revision(self):
@@ -202,7 +361,11 @@ class CourseAuthoringWorkflowTests(TestCase):
             )
 
         self.assertRedirects(response, review_url)
-        enqueue.assert_called_once_with(self.course.pk, revision_instruction='Make it more advanced.')
+        enqueue.assert_called_once_with(
+            self.course.pk,
+            revision_instruction='Make it more advanced.',
+            source_curriculum_version_id=curriculum.pk,
+        )
 
     def test_instructor_review_checklist_is_reused_across_review_workspace_and_export(self):
         curriculum = create_curriculum_revision(self.course, sections=self.sections, approve=True)

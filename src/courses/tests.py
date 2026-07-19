@@ -45,6 +45,21 @@ class CourseModelTests(TestCase):
                 position=1,
             )
 
+    def test_course_validates_and_displays_a_learning_progression(self):
+        course = CourseFactory(
+            starting_level=Course.Level.BEGINNER,
+            target_completion_level=Course.Level.ADVANCED,
+        )
+
+        course.full_clean()
+
+        self.assertEqual(course.level, Course.Level.MIXED)
+        self.assertEqual(course.level_progression_display, 'Beginner → Advanced')
+        course.target_completion_level = Course.Level.BEGINNER
+        course.starting_level = Course.Level.ADVANCED
+        with self.assertRaises(ValidationError):
+            course.full_clean()
+
 
 class MarkdownRenderingTests(TestCase):
     def test_explicit_mermaid_fence_has_an_escaped_source_fallback(self):

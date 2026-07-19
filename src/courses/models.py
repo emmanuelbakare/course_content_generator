@@ -23,6 +23,17 @@ class Course(models.Model):
         ADVANCED = 'advanced', 'Advanced'
         MIXED = 'mixed', 'Mixed level'
 
+    PROGRESSION_LEVELS = (
+        Level.BEGINNER,
+        Level.INTERMEDIATE,
+        Level.ADVANCED,
+    )
+    LEVEL_RANKS = {
+        Level.BEGINNER: 1,
+        Level.INTERMEDIATE: 2,
+        Level.ADVANCED: 3,
+    }
+
     class DeliveryMode(models.TextChoices):
         INSTRUCTOR_LED = 'instructor_led', 'Instructor-led'
         SELF_PACED = 'self_paced', 'Self-paced'
@@ -38,6 +49,13 @@ class Course(models.Model):
     topic = models.TextField()
     target_audience = models.CharField(max_length=255, blank=True)
     level = models.CharField(max_length=20, choices=Level.choices, default=Level.BEGINNER)
+    starting_level = models.CharField(max_length=20, choices=Level.choices, blank=True, null=True)
+    target_completion_level = models.CharField(
+        max_length=20,
+        choices=Level.choices,
+        blank=True,
+        null=True,
+    )
     language = models.CharField(max_length=20, default='en')
     delivery_mode = models.CharField(
         max_length=20,
@@ -68,6 +86,48 @@ class Course(models.Model):
         super().clean()
         if not isinstance(self.learning_outcomes, list):
             raise ValidationError({'learning_outcomes': 'Learning outcomes must be a list.'})
+        progression_errors = {}
+        if bool(self.starting_level) != bool(self.target_completion_level):
+            progression_errors['target_completion_level'] = (
+                'Choose both a starting level and a target completion level.'
+            )
+        if self.starting_level and self.starting_level not in self.PROGRESSION_LEVELS:
+            progression_errors['starting_level'] = (
+                'Choose Beginner, Intermediate, or Advanced as the starting level.'
+            )
+        if (
+            self.target_completion_level
+            and self.target_completion_level not in self.PROGRESSION_LEVELS
+        ):
+            progression_errors['target_completion_level'] = (
+                'Choose Beginner, Intermediate, or Advanced as the target completion level.'
+            )
+        if (
+            self.starting_level in self.LEVEL_RANKS
+            and self.target_completion_level in self.LEVEL_RANKS
+            and self.LEVEL_RANKS[self.target_completion_level] < self.LEVEL_RANKS[self.starting_level]
+        ):
+            progression_errors['target_completion_level'] = (
+                'The target completion level cannot be below the starting level.'
+            )
+        if progression_errors:
+            raise ValidationError(progression_errors)
+        if self.starting_level and self.target_completion_level:
+            self.level = (
+                self.starting_level
+                if self.starting_level == self.target_completion_level
+                else self.Level.MIXED
+            )
+
+    @property
+    def level_progression_display(self):
+        """Return the explicit learning path, with a legacy-level fallback."""
+        if self.starting_level and self.target_completion_level:
+            return (
+                f'{self.get_starting_level_display()} \N{RIGHTWARDS ARROW} '
+                f'{self.get_target_completion_level_display()}'
+            )
+        return self.get_level_display()
 
 
 class CurriculumVersion(models.Model):

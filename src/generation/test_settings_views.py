@@ -58,14 +58,16 @@ class GenerationSettingsViewTests(TestCase):
         with patch.dict(os.environ, {'OPENAI_API_KEY': 'super-secret-value'}, clear=False):
             response = self.client.get(self.settings_url)
 
-        self.assertContains(response, 'Key configured')
+        self.assertContains(response, 'API key configured')
         self.assertNotContains(response, 'super-secret-value')
         self.assertNotContains(response, 'OPENAI_API_KEY')
         self.assertContains(response, provider.name)
 
     def test_staff_can_create_filter_and_delete_models_by_provider(self):
         provider = self.create_provider()
-        other_provider = self.create_provider(name='Anthropic', adapter_type=LLMProvider.AdapterType.ANTHROPIC)
+        other_provider = self.create_provider(
+            name='Test Anthropic', adapter_type=LLMProvider.AdapterType.ANTHROPIC
+        )
         other_model = LLMModel.objects.create(provider=other_provider, identifier='other-model')
         self.client.force_login(self.staff)
 
@@ -98,7 +100,9 @@ class GenerationSettingsViewTests(TestCase):
 
     def test_default_selection_rejects_model_from_another_provider(self):
         provider = self.create_provider()
-        other_provider = self.create_provider(name='Anthropic', adapter_type=LLMProvider.AdapterType.ANTHROPIC)
+        other_provider = self.create_provider(
+            name='Test Anthropic', adapter_type=LLMProvider.AdapterType.ANTHROPIC
+        )
         other_model = LLMModel.objects.create(provider=other_provider, identifier='other-model')
         self.client.force_login(self.staff)
 
@@ -133,6 +137,7 @@ class GenerationSettingsViewTests(TestCase):
                 'default_model': model.pk,
                 'default_temperature': '0.5',
                 'max_output_tokens': 3000,
+                'curriculum_response_limit': 4,
                 'max_continuations': 2,
                 'request_timeout_seconds': 60,
                 'max_retries': 2,
@@ -140,8 +145,63 @@ class GenerationSettingsViewTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, self.settings_url)
+        self.assertRedirects(response, f'{self.settings_url}?tab=generation')
         settings = GenerationSettings.get_solo()
         self.assertEqual(settings.default_provider, provider)
         self.assertEqual(settings.default_model, model)
         self.assertEqual(settings.max_output_tokens, 3000)
+        self.assertEqual(settings.curriculum_response_limit, 4)
+
+        page = self.client.get(self.settings_url)
+        self.assertContains(page, 'Curriculum response limit')
+        self.assertContains(page, 'Leave blank for Unlimited')
+
+    def test_settings_page_separates_generation_controls_and_provider_catalog_into_tabs(self):
+        provider = self.create_provider()
+        self.client.force_login(self.staff)
+
+        controls = self.client.get(f'{self.settings_url}?tab=generation')
+        providers = self.client.get(f'{self.settings_url}?tab=providers')
+
+        self.assertContains(controls, 'Generation controls')
+        self.assertContains(controls, 'role="tab"')
+        self.assertContains(controls, 'aria-selected="true"')
+        self.assertContains(controls, 'id="provider-models-panel" role="tabpanel" aria-labelledby="provider-models-tab" hidden')
+        self.assertContains(providers, 'LLM Providers')
+        self.assertContains(providers, provider.name)
+        self.assertContains(providers, 'id="generation-controls-panel" role="tabpanel" aria-labelledby="generation-controls-tab" hidden')
+
+    def test_provider_model_page_uses_seeded_catalog_and_safe_key_status(self):
+        groq = LLMProvider.objects.get(name='Groq')
+        self.client.force_login(self.staff)
+
+        response = self.client.get(f'{self.settings_url}?provider={groq.pk}')
+
+        self.assertContains(response, 'LLM Providers')
+        self.assertContains(response, 'Provider &amp; Model configuration')
+        self.assertContains(response, 'Groq-hosted chat models.')
+        self.assertContains(response, 'llama-3.3-70b-versatile')
+        self.assertContains(response, 'openai/gpt-oss-120b')
+        self.assertContains(response, 'API key ')
+        self.assertNotContains(response, 'GROQ_API_KEY')
+
+    def test_use_model_sets_the_default_provider_and_model_for_generation(self):
+        provider = self.create_provider(name='Selected provider')
+        model = LLMModel.objects.create(provider=provider, identifier='selected-model')
+        self.client.force_login(self.staff)
+
+        response = self.client.post(
+            self.settings_url,
+            {'action': 'set_default_model', 'model_id': model.pk},
+        )
+
+        self.assertRedirects(response, f'{self.settings_url}?provider={provider.pk}')
+        settings = GenerationSettings.get_solo()
+        self.assertEqual(settings.default_provider, provider)
+        self.assertEqual(settings.default_model, model)
+
+        page = self.client.get(f'{self.settings_url}?provider={provider.pk}')
+        self.assertContains(page, 'Current model:')
+        self.assertContains(page, model.identifier)
+        self.assertContains(page, 'provider-card-selector')
+        self.assertNotContains(page, '>Enabled<')

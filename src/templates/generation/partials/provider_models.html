@@ -1,0 +1,22 @@
+<div class="model-list">
+    {% for model in models %}
+        <article class="model-row-card">
+            <div>
+                <h3>{{ model.display_name|default:model.identifier }}</h3>
+                {% if model.description %}<p>{{ model.description }}</p>{% endif %}
+                <p class="muted">{{ model.identifier }} &middot; Temperature {{ model.default_temperature }}</p>
+            </div>
+            <div class="version-actions">
+                {% if generation_settings.default_model_id == model.id %}
+                    <span class="status status-approved">Default</span>
+                {% elif model.enabled and selected_provider.enabled %}
+                    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="set_default_model"><input type="hidden" name="model_id" value="{{ model.id }}"><button class="button button-secondary" type="submit">Use</button></form>
+                {% endif %}
+                <a class="button button-secondary" href="{% url 'generation:settings' %}?provider={{ selected_provider.id }}&edit_model={{ model.id }}">Edit</a>
+                <form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_model"><input type="hidden" name="model_id" value="{{ model.id }}"><button class="button button-danger" type="submit">Delete</button></form>
+            </div>
+        </article>
+    {% empty %}
+        <div class="empty-state compact"><h3>No models yet</h3><p>Add a model for {{ selected_provider.name }}.</p></div>
+    {% endfor %}
+</div>

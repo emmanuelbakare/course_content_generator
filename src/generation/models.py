@@ -21,6 +21,7 @@ class LLMProvider(models.Model):
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
     adapter_type = models.CharField(max_length=30, choices=AdapterType.choices)
     api_key_environment_variable = models.CharField(max_length=100)
     base_url = models.URLField(blank=True)
@@ -58,6 +59,7 @@ class LLMModel(models.Model):
     provider = models.ForeignKey(LLMProvider, on_delete=models.CASCADE, related_name='models')
     identifier = models.CharField(max_length=255)
     display_name = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
     enabled = models.BooleanField(default=True)
     default_temperature = models.FloatField(
         default=0.7,
@@ -107,6 +109,12 @@ class GenerationSettings(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(2)],
     )
     max_output_tokens = models.PositiveIntegerField(default=4000, validators=[MinValueValidator(1)])
+    curriculum_response_limit = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text='Leave blank to continue curriculum responses until completion, cancellation, or task timeout.',
+    )
     max_continuations = models.PositiveSmallIntegerField(default=3)
     request_timeout_seconds = models.PositiveIntegerField(default=120, validators=[MinValueValidator(1)])
     max_retries = models.PositiveSmallIntegerField(default=3)
@@ -254,6 +262,7 @@ class GenerationAttempt(models.Model):
     prompt_template_version = models.CharField(max_length=100)
     request_metadata = models.JSONField(default=dict, blank=True)
     response_metadata = models.JSONField(default=dict, blank=True)
+    response_preview = models.TextField(blank=True, default='')
     input_tokens = models.PositiveIntegerField(null=True, blank=True)
     output_tokens = models.PositiveIntegerField(null=True, blank=True)
     estimated_cost = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)

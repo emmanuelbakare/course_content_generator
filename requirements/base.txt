@@ -2,13 +2,20 @@ psycopg[binary]
 python-dotenv
 django-environ
 celery
-redis
+# Redis-py 8 defaults to RESP3, which requires Redis 6+. Keep RESP2 compatibility
+# for supported local Redis 5 installations; production should still use Redis 6+.
+redis>=5,<6
 django-celery-results
 django-celery-beat
 pydantic
-openai
 httpx
 tenacity
+langchain
+langchain-openai
+langchain-anthropic
+langchain-google-genai
+langchain-deepseek
+langchain-groq
 django-htmx
 whitenoise
 Pillow
@@ -20,6 +27,4 @@ weasyprint
 reportlab
 pypdf
 pymupdf
-anthropic
-google-genai
 djangorestframework

@@ -11,6 +11,7 @@ from .models import GenerationJob
 from .services import (
     ActiveLessonGenerationJobError,
     GenerationConfigurationError,
+    GenerationDispatchError,
     enqueue_curriculum_job,
     enqueue_lesson_job,
     enqueue_lesson_jobs,
@@ -40,6 +41,8 @@ class LessonGenerationView(OwnedLessonActionMixin, View):
             messages.warning(request, 'Lesson generation is already queued or running for this lesson.')
         except GenerationConfigurationError:
             messages.error(request, 'Configure an enabled default provider and model before generating lessons.')
+        except GenerationDispatchError:
+            messages.error(request, 'Lesson generation could not be queued. Check Redis and the Celery worker, then retry.')
         else:
             messages.success(request, 'Lesson generation has been queued.')
         return self.workspace_redirect(lesson)
@@ -67,6 +70,8 @@ class BatchLessonGenerationView(LoginRequiredMixin, View):
             result = enqueue_lesson_jobs(lessons)
         except GenerationConfigurationError:
             messages.error(request, 'Configure an enabled default provider and model before generating lessons.')
+        except GenerationDispatchError:
+            messages.error(request, 'Lesson generation could not be queued. Check Redis and the Celery worker, then retry.')
         else:
             if result.queued_jobs:
                 messages.success(request, f'Queued generation for {len(result.queued_jobs)} lesson(s).')
@@ -102,6 +107,8 @@ class LessonRetryView(LoginRequiredMixin, View):
                 messages.warning(request, 'Lesson generation is already queued or running for this lesson.')
             except GenerationConfigurationError:
                 messages.error(request, 'Configure an enabled default provider and model before retrying.')
+            except GenerationDispatchError:
+                messages.error(request, 'Lesson retry could not be queued. Check Redis and the Celery worker, then retry.')
             else:
                 messages.success(request, 'Lesson retry has been queued.')
         course = job.lesson.section.curriculum_version.course
@@ -137,12 +144,19 @@ class CurriculumRetryView(LoginRequiredMixin, View):
             messages.error(request, 'Only unsuccessful curriculum jobs can be retried.')
         else:
             try:
+                source_curriculum_version_id = job.input_metadata.get('source_curriculum_version_id')
+                enqueue_kwargs = {}
+                if source_curriculum_version_id:
+                    enqueue_kwargs['source_curriculum_version_id'] = source_curriculum_version_id
                 enqueue_curriculum_job(
                     job.course_id,
                     revision_instruction=job.input_metadata.get('revision_instruction', ''),
+                    **enqueue_kwargs,
                 )
             except GenerationConfigurationError:
                 messages.error(request, 'Configure an enabled default provider and model before retrying.')
+            except GenerationDispatchError:
+                messages.error(request, 'Curriculum retry could not be queued. Check Redis and the Celery worker, then retry.')
             else:
                 messages.success(request, 'Curriculum generation retry has been queued.')
         return redirect('courses:detail', course_id=job.course.public_id)

@@ -4,6 +4,34 @@
     {% if job.status == 'queued' or job.status == 'running' or job.status == 'retrying' %}{% if status_url %}hx-get="{{ status_url }}"{% else %}hx-get="{% url 'generation:job-status' job.public_id %}"{% endif %} hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}
 >
     <div class="job-status-heading"><h3>Curriculum generation</h3><span class="status status-{{ job.status }}">{{ job.get_status_display }}</span></div>
+    <p><strong>Model:</strong> {{ job.provider.name }} / {{ job.llm_model }}</p>
+    {% if latest_attempt %}
+        <p><strong>Outline response {{ latest_attempt.attempt_number }}{% if job.input_metadata.curriculum_response_limit %} of up to {{ job.input_metadata.curriculum_response_limit }}{% else %} (Unlimited){% endif %}:</strong> {{ latest_attempt.get_status_display }}{% if latest_attempt.started_at %} since {{ latest_attempt.started_at|date:"M j, Y H:i:s" }}{% endif %}.</p>
+        {% if latest_attempt.response_preview %}
+            <details class="generation-preview"{% if job.status == 'running' %} open{% endif %}>
+                <summary>Model curriculum draft</summary>
+                <p class="muted">This unapproved draft is visible only to the course owner. It is not yet a curriculum version.</p>
+                {% if curriculum_preview %}
+                    <article class="curriculum-preview">
+                        <h4>{{ curriculum_preview.course_description|default:job.course.title }}</h4>
+                        <dl class="metadata-list"><div><dt>Proposed duration</dt><dd>{{ curriculum_preview.suggested_duration_minutes }} minutes</dd></div><div><dt>Sections</dt><dd>{{ curriculum_preview.sections|length }}</dd></div></dl>
+                        <h5>Learning outcomes</h5><ul>{% for outcome in curriculum_preview.overall_learning_outcomes %}<li>{{ outcome }}</li>{% endfor %}</ul>
+                        <h5>Prerequisites</h5><p>{{ curriculum_preview.prerequisites|default:'None specified.' }}</p>
+                        <h5>Duration estimate</h5><p>{{ curriculum_preview.duration_estimate_explanation }}</p>
+                        {% for section in curriculum_preview.sections %}
+                            <section class="outline-section"><h5>{{ section.position|default:forloop.counter }}. {{ section.title }}</h5><p>{{ section.duration_minutes }} minutes{% if section.summary %} · {{ section.summary }}{% endif %}</p>{% if section.learning_outcomes %}<p><strong>Section outcomes:</strong> {{ section.learning_outcomes|join:', ' }}</p>{% endif %}<ol>{% for lesson in section.lessons %}<li><strong>{{ lesson.title }}</strong> · {{ lesson.duration_minutes }} min{% if lesson.objectives %}<br><span class="muted">Objectives: {{ lesson.objectives|join:', ' }}</span>{% endif %}{% if lesson.outline %}<br>{{ lesson.outline }}{% endif %}</li>{% endfor %}</ol></section>
+                        {% endfor %}
+                        {% if curriculum_preview.project %}<section class="outline-section"><h5>Course project: {{ curriculum_preview.project.title }}</h5><p>{{ curriculum_preview.project.description }}</p>{% if curriculum_preview.project.deliverables %}<p><strong>Deliverables:</strong> {{ curriculum_preview.project.deliverables|join:', ' }}</p>{% endif %}{% if curriculum_preview.project.evaluation_criteria %}<p><strong>Evaluation criteria:</strong> {{ curriculum_preview.project.evaluation_criteria|join:', ' }}</p>{% endif %}</section>{% endif %}
+                    </article>
+                {% else %}
+                    <p class="muted">The response is incomplete or invalid, so its raw escaped text is shown for troubleshooting.</p>
+                    <pre>{{ latest_attempt.response_preview }}</pre>
+                {% endif %}
+            </details>
+        {% elif job.status == 'running' %}
+            <p class="muted">The request is with the provider. The response preview will appear here as soon as it returns.</p>
+        {% endif %}
+    {% elif job.status == 'queued' %}<p class="muted">Waiting for the worker to send the outline request.</p>{% endif %}
     {% if job.progress_total %}<progress value="{{ job.progress_current }}" max="{{ job.progress_total }}">{{ job.progress_current }} of {{ job.progress_total }}</progress><p>{{ job.progress_current }} of {{ job.progress_total }} steps complete</p>{% else %}<p>Preparing generation details.</p>{% endif %}
     {% if job.error_message %}<p class="form-errors">{{ job.error_message }}</p>{% endif %}
     <div class="job-controls">

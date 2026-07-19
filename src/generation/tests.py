@@ -1,6 +1,6 @@
 import os
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -15,6 +15,7 @@ from .adapters import (
     OpenAIAdapter,
     OpenAICompatibleAdapter,
     ProviderConfigurationError,
+    _model_kwargs,
     get_adapter,
 )
 from .models import GenerationAttempt, GenerationJob, GenerationSettings, LLMModel, LLMProvider
@@ -50,7 +51,7 @@ class GenerationConfigurationTests(TestCase):
 
     def test_singleton_settings_validates_model_provider_pair(self):
         other_provider = LLMProvider.objects.create(
-            name='Anthropic',
+            name='Test Anthropic',
             adapter_type=LLMProvider.AdapterType.ANTHROPIC,
             api_key_environment_variable='ANTHROPIC_API_KEY',
         )
@@ -97,72 +98,67 @@ class AdapterTests(TestCase):
             )
             self.assertIsInstance(get_adapter(provider, client=object()), adapter_class)
 
-    def test_openai_adapter_normalizes_mocked_response(self):
-        mocked_client = SimpleNamespace(
-            responses=SimpleNamespace(
-                create=lambda **kwargs: SimpleNamespace(
-                    output_text='Generated content',
-                    _request_id='req_123',
-                    usage=SimpleNamespace(input_tokens=12, output_tokens=34),
-                )
-            )
+    def test_langchain_adapter_normalizes_a_chat_message(self):
+        runnable = Mock()
+        runnable.invoke.return_value = SimpleNamespace(
+            content='Generated content', id='run_123', usage_metadata={'input_tokens': 12, 'output_tokens': 34}, response_metadata={}
         )
-        response = OpenAIAdapter(self.provider, client=mocked_client).generate(self.request)
+        response = OpenAIAdapter(self.provider, client=runnable).generate(self.request)
 
+        runnable.invoke.assert_called_once_with([('human', 'Write a lesson.')])
         self.assertEqual(response.text, 'Generated content')
-        self.assertEqual(response.provider_request_id, 'req_123')
-        self.assertEqual(response.output_tokens, 34)
+        self.assertEqual(response.provider_request_id, 'run_123')
+        self.assertTrue(response.metadata['langchain'])
 
-    def test_anthropic_adapter_normalizes_mocked_response(self):
-        provider = LLMProvider.objects.create(
-            name='Anthropic',
-            adapter_type=LLMProvider.AdapterType.ANTHROPIC,
-            api_key_environment_variable='ANTHROPIC_API_KEY',
+    def test_langchain_openai_uses_native_structured_output(self):
+        runnable, structured = Mock(), Mock()
+        runnable.with_structured_output.return_value = structured
+        structured.invoke.return_value = {'title': 'Outline'}
+        response = OpenAIAdapter(self.provider, client=runnable).generate(
+            GenerationRequest(model='test-model', prompt='Write JSON.', json_schema={'type': 'object'})
         )
-        mocked_client = SimpleNamespace(
-            messages=SimpleNamespace(
-                create=lambda **kwargs: SimpleNamespace(
-                    id='msg_123',
-                    content=[SimpleNamespace(text='Generated content')],
-                    usage=SimpleNamespace(input_tokens=12, output_tokens=34),
-                )
+
+        runnable.with_structured_output.assert_called_once_with({'type': 'object'}, method='json_schema')
+        self.assertEqual(response.text, '{"title": "Outline"}')
+
+    def test_langchain_adapter_sends_preview_to_the_callback(self):
+        callback, runnable = Mock(), Mock()
+        runnable.invoke.return_value = SimpleNamespace(content='Generated content', id='run_123', usage_metadata={}, response_metadata={})
+
+        OpenAIAdapter(self.provider, client=runnable).generate(
+            GenerationRequest(model='test-model', prompt='Write.', on_text_delta=callback)
+        )
+
+        callback.assert_called_once_with('Generated content')
+
+    def test_all_provider_adapters_use_a_langchain_runnable(self):
+        for name, adapter_type in (
+            ('Test Anthropic', LLMProvider.AdapterType.ANTHROPIC),
+            ('Test Google', LLMProvider.AdapterType.GOOGLE_GENAI),
+            ('Test DeepSeek', LLMProvider.AdapterType.OPENAI_COMPATIBLE),
+        ):
+            provider = LLMProvider.objects.create(
+                name=name, adapter_type=adapter_type, api_key_environment_variable=f'{adapter_type.upper()}_API_KEY',
+                base_url='https://example.test/v1' if adapter_type == LLMProvider.AdapterType.OPENAI_COMPATIBLE else '',
             )
-        )
-
-        response = AnthropicAdapter(provider, client=mocked_client).generate(self.request)
-
-        self.assertEqual(response.text, 'Generated content')
-        self.assertEqual(response.provider_request_id, 'msg_123')
-
-    def test_google_adapter_normalizes_mocked_response(self):
-        provider = LLMProvider.objects.create(
-            name='Google',
-            adapter_type=LLMProvider.AdapterType.GOOGLE_GENAI,
-            api_key_environment_variable='GOOGLE_API_KEY',
-        )
-        mocked_client = SimpleNamespace(
-            models=SimpleNamespace(
-                generate_content=lambda **kwargs: SimpleNamespace(
-                    text='Generated content',
-                    response_id='google_123',
-                    usage_metadata=SimpleNamespace(
-                        prompt_token_count=12,
-                        candidates_token_count=34,
-                    ),
-                )
-            )
-        )
-
-        response = GoogleGenAIAdapter(provider, client=mocked_client).generate(self.request)
-
-        self.assertEqual(response.text, 'Generated content')
-        self.assertEqual(response.provider_request_id, 'google_123')
+            runnable = Mock()
+            runnable.invoke.return_value = SimpleNamespace(content='Generated content', id='run_123', usage_metadata={}, response_metadata={})
+            response = get_adapter(provider, client=runnable).generate(self.request)
+            self.assertEqual(response.text, 'Generated content')
 
     def test_missing_key_fails_before_provider_client_is_created(self):
         with patch.dict(os.environ, {}, clear=True):
             adapter = OpenAIAdapter(self.provider)
             with self.assertRaises(ProviderConfigurationError):
                 adapter.api_key()
+
+    def test_model_kwargs_passes_the_configured_request_timeout(self):
+        kwargs = _model_kwargs(
+            GenerationRequest(model='test-model', prompt='Write.', timeout_seconds=45),
+            api_key='test-key',
+        )
+
+        self.assertEqual(kwargs['timeout'], 45)
 
     def test_attempt_requires_the_job_provider_and_model(self):
         owner = get_user_model().objects.create_user('author')

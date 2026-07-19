@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block title %}Delete {{ course.title }} &middot; Course Content Generator{% endblock %}
+
+{% block content %}
+    {% if active_generation_count or active_export_count %}<meta http-equiv="refresh" content="3">{% endif %}
+    <section id="delete-course-panel" class="form-panel danger-panel" aria-labelledby="delete-course-title"{% if active_generation_count or active_export_count %} hx-get="{% url 'courses:delete' course.public_id %}" hx-trigger="every 3s" hx-select="#delete-course-panel" hx-target="#delete-course-panel" hx-swap="outerHTML"{% endif %}>
+        <p class="eyebrow">Permanent action</p>
+        <h1 id="delete-course-title">Delete {{ course.title }}?</h1>
+        <p>This permanently removes the course, all curriculum versions, sections, lessons, lesson revisions, generation jobs and attempts, export jobs, and private export files. It cannot be undone.</p>
+
+        {% if active_generation_count or active_export_count %}
+            <div class="form-errors" role="alert">
+                <h2>Background work is still active</h2>
+                <p>{{ active_generation_count }} generation job{{ active_generation_count|pluralize }} and {{ active_export_count }} export job{{ active_export_count|pluralize }} must finish or be cancelled before deletion.</p>
+            </div>
+            {% if can_cancel_active_work %}
+                <form method="post" class="form-actions">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="cancel_active_work">
+                    <button class="button button-danger" type="submit">Cancel active work</button>
+                </form>
+            {% endif %}
+            {% if generation_cancellation_requested_count %}<p>Cancellation has been requested for {{ generation_cancellation_requested_count }} generation job{{ generation_cancellation_requested_count|pluralize }}. Keep this page open while it refreshes.</p>{% endif %}
+            {% if running_export_count %}<p>A running export must finish before deletion can be enabled. Queued exports can be cancelled above.</p>{% endif %}
+            {% if active_generation_jobs %}<h3>Generation cancellation status</h3><ul>{% for job in active_generation_jobs %}<li><strong>{{ job.get_job_type_display }} generation:</strong> {{ job.get_status_display }}{% if job.cancellation_requested_at %} &mdash; cancellation requested {{ job.cancellation_requested_at|date:"M j, Y H:i:s" }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+            <p class="muted" aria-live="polite">Status checked {{ checked_at|date:"H:i:s" }}. This page reloads every three seconds; <a href="{% url 'courses:delete' course.public_id %}">refresh now</a>.</p>
+            <p class="muted">When all background work is terminal, this page will automatically show the final delete confirmation.</p>
+            <p><a class="button button-secondary" href="{% url 'courses:detail' course.public_id %}">Return to course</a></p>
+        {% else %}
+            <form method="post" class="stacked-form">
+                {% csrf_token %}
+                <p><strong>Are you sure you want to permanently delete this course?</strong></p>
+                <div class="form-actions">
+                    <button class="button button-danger" type="submit">Permanently delete course</button>
+                    <a class="button button-secondary" href="{% url 'courses:detail' course.public_id %}">Cancel</a>
+                </div>
+            </form>
+        {% endif %}
+    </section>
+{% endblock %}

@@ -45,6 +45,7 @@ class GenerationAttemptInline(admin.TabularInline):
     readonly_fields = (
         'public_id', 'provider', 'llm_model', 'attempt_number', 'status',
         'prompt_template_version', 'request_metadata', 'response_metadata',
+        'response_preview',
         'input_tokens', 'output_tokens', 'estimated_cost', 'error_code',
         'error_message', 'started_at', 'completed_at',
     )
